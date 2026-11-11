@@ -2,7 +2,7 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
-type Provider = "groq" | "openrouter" | "cloudflare";
+type Provider = "groq" | "openrouter";
 type Message = { role: "user" | "assistant"; content: string };
 type ModelState = { id: Provider; name: string; model: string; enabled: boolean; color: string };
 
