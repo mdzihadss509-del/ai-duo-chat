@@ -1,28 +1,37 @@
-# AI Duo
+# AI Duo Chat
 
-A Next.js app that sends one prompt to Google Gemini and Groq in parallel, displays both independent responses, then synthesizes a combined answer.
+A unified chat interface powered by three selectable AI providers: Groq, OpenRouter, and Cloudflare Workers AI. Enabled providers answer in parallel, then one provider attempts a bounded synthesis so the user sees one response.
 
-## Setup
+## Local setup
 
-1. Install dependencies: `npm install`
-2. Copy `.env.example` to `.env.local`
-3. Add API keys:
-   - `GEMINI_API_KEY` from https://aistudio.google.com/apikey
-   - `GROQ_API_KEY` from https://console.groq.com/keys
-4. Optional model overrides: `GEMINI_MODEL` (default `gemini-2.5-flash`) and `GROQ_MODEL` (default `openai/gpt-oss-20b`)
-5. Run: `npm run dev`
+1. Install Node.js (20 or newer).
+2. Run `npm install`.
+3. Copy `.env.example` to `.env.local`.
+4. Add the provider credentials to `.env.local`:
+   - `GROQ_API_KEY` — https://console.groq.com/keys
+   - `OPENROUTER_API_KEY` — https://openrouter.ai/keys
+   - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare dashboard account ID
+   - `CLOUDFLARE_API_TOKEN` — a Workers AI API token
+5. Start the app with `npm run dev`.
+
+## Optional model overrides
+
+- `GROQ_MODEL` defaults to `openai/gpt-oss-20b`.
+- `OPENROUTER_MODEL` defaults to `openrouter/free`.
+- `CLOUDFLARE_MODEL` defaults to `@cf/meta/llama-3.1-8b-instruct`.
 
 ## Vercel
 
-Add `GEMINI_API_KEY` and `GROQ_API_KEY` under Project Settings → Environment Variables for Production, Preview, and Development, then redeploy.
+Add the four required variables above to the Production environment (and Preview/Development too if you use those environments), then redeploy. Redeploy after changing environment variables so the new deployment receives them.
 
-**Free tier note:** Both providers enforce model-specific quotas and rate limits. Free access is not unlimited and may change. The app does not automatically switch to paid usage.
+## Request flow and limits
 
-**Security:** Never commit API keys or expose them in browser code. Keep them in server-side environment variables only.
+- Selected providers are called concurrently.
+- When multiple providers return answers, one available provider makes one bounded synthesis attempt.
+- If synthesis fails, the app returns the first available provider answer.
+- The API route includes a best-effort per-instance rate limit. Serverless instances do not share this in-memory counter; use a shared rate-limit store or WAF rule for strict global protection.
+- Provider quotas, free model availability, and rate limits are controlled by each provider and can change.
 
-## How it works
+## Security
 
-- Gemini and Groq are called concurrently from a server-side route.
-- Their answers are returned separately for comparison.
-- Gemini synthesizes the combined answer; if Gemini's first response fails, Groq does the synthesis.
-- If synthesis fails, the app falls back to the available independent answer(s).
+Never commit API keys, place them in client-side code, or share them in chat. Keep all credentials in server-side environment variables. The rate limiter is a lightweight abuse deterrent, not a replacement for global edge protection.
