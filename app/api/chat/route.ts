@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-// Keep provider requests alive for up to 4.5 minutes, leaving time for response processing.
 
 type ProviderConfig = {
   id: string;
@@ -58,7 +57,6 @@ function conversationMessages(prompt: string, history: HistoryMessage[], images:
 async function askCloudflareFallback(
   messages: { role: string; content: any }[],
   originalError: string,
-  timeout = 20000,
 ): Promise<ChatResult | null> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
@@ -102,13 +100,13 @@ async function askCloudflareFallback(
   }
 }
 
-async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 270000): Promise<ChatResult> {
+async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[]): Promise<ChatResult> {
   if (provider.id === "cloudflare" && !process.env.CLOUDFLARE_ACCOUNT_ID) return { error: "Missing server environment variable CLOUDFLARE_ACCOUNT_ID" };
   const key = process.env[provider.apiKeyEnv];
   if (!key) {
     const missingKeyError = "Missing server environment variable " + provider.apiKeyEnv;
     if (provider.id === "groq") {
-      const fallback = await askCloudflareFallback(messages, missingKeyError, timeout);
+      const fallback = await askCloudflareFallback(messages, missingKeyError);
       if (fallback) return fallback;
     }
     return { error: missingKeyError };
@@ -131,7 +129,7 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
     if (!response.ok) {
       const providerError = data?.error?.message || provider.name + " returned HTTP " + response.status;
       if (provider.id === "groq") {
-        const fallback = await askCloudflareFallback(messages, providerError, timeout);
+        const fallback = await askCloudflareFallback(messages, providerError);
         if (fallback) return fallback;
       }
       return { error: providerError };
@@ -216,7 +214,7 @@ export async function POST(request: Request) {
         { role: "system", content: SYSTEM_PROMPT + " You are also the answer composer. Compare independent drafts, keep accurate and useful points, remove repetition, resolve contradictions carefully, and produce one natural, complete answer. Do not mention models, providers, or that answers were combined." },
         { role: "user", content: "Original user message:\n" + prompt + "\n\n" + drafts },
       ];
-      const synthesis = await askProvider(available[0].provider, synthesisMessages, 25000);
+      const synthesis = await askProvider(available[0].provider, synthesisMessages);
       if (synthesis.text) final = synthesis.text;
       else errors.push("Synthesis unavailable; showing the best available response.");
     }
