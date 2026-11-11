@@ -172,3 +172,50 @@ body{background:#f6f8ff;color:#1f2b48}
 .preview-head b{color:#263b65}
 .preview-head button:hover{border-color:#a8bdfa;background:#f2f6ff;color:#3b6ed1}
 @media(max-width:760px){.sidebar{background:linear-gradient(180deg,#111d3c,#211d50)}}
+
+
+/* Refined split-screen authentication layout */
+.auth-screen{min-height:100dvh;padding:clamp(18px,4vw,56px);background:radial-gradient(ellipse at 12% 8%,#d8eaff 0,transparent 42%),radial-gradient(ellipse at 90% 92%,#e6ddff 0,transparent 45%),#f5f7ff}
+.auth-layout{width:min(1120px,100%);min-height:min(720px,calc(100dvh - 2 * clamp(18px,4vw,56px)));display:grid;grid-template-columns:minmax(0,1fr) minmax(390px,460px);align-items:stretch;gap:clamp(20px,4vw,64px);padding:clamp(14px,2vw,24px);border:1px solid #e2e8fa;border-radius:30px;background:rgba(255,255,255,.64);box-shadow:0 30px 100px #294a9218;backdrop-filter:blur(16px)}
+.auth-showcase{position:relative;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;min-height:620px;padding:clamp(28px,5vw,62px);border-radius:22px;background:radial-gradient(circle at 85% 18%,#6ca6ff55,transparent 30%),radial-gradient(circle at 12% 88%,#a879ff55,transparent 35%),linear-gradient(145deg,#142d66 0%,#263c8c 48%,#52358f 100%);color:#fff}
+.auth-showcase:after{content:"";position:absolute;width:340px;height:340px;right:-120px;bottom:-145px;border:1px solid #ffffff28;border-radius:50%;box-shadow:0 0 0 35px #ffffff0a,0 0 0 75px #ffffff08}
+.auth-showcase-brand{display:flex;align-items:center;gap:11px;color:#fff;font-size:20px;font-weight:750;letter-spacing:-.7px}
+.auth-showcase-brand .brand-symbol{width:39px;height:39px;background:linear-gradient(135deg,#54a5ff,#a07aff);box-shadow:0 8px 24px #0c174b66}
+.auth-showcase-brand b{color:#a9c7ff}
+.auth-showcase-copy{position:relative;z-index:1;max-width:460px;margin:55px 0}
+.auth-kicker{display:inline-flex;padding:8px 11px;border:1px solid #ffffff30;border-radius:999px;background:#ffffff12;color:#cbdcff;font-size:9px;font-weight:800;letter-spacing:1.5px}
+.auth-showcase-copy h1{margin:24px 0 16px;color:#fff;font-size:clamp(38px,5vw,62px);line-height:1.04;letter-spacing:-2.8px}
+.auth-showcase-copy h1 em{background:linear-gradient(90deg,#9ed0ff,#c4a3ff);background-clip:text;-webkit-background-clip:text;color:transparent;font-style:normal}
+.auth-showcase-copy>p{max-width:390px;margin:0 0 34px;color:#d2dcff;font-size:13px;line-height:1.8}
+.auth-feature{display:flex;align-items:center;gap:13px;margin-top:17px}
+.auth-feature>span{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff2b;border-radius:11px;background:#ffffff12;color:#c8d8ff;font-size:16px}
+.auth-feature div{display:grid;gap:4px}
+.auth-feature b{color:#fff;font-size:11px}
+.auth-feature small{color:#b6c6ef;font-size:9px}
+.auth-showcase-foot{position:relative;z-index:1;color:#9fb3e9;font-size:8px;font-weight:750;letter-spacing:1.6px}
+.auth-layout .auth-card-pro{align-self:center;width:100%;margin:0;padding:clamp(24px,3vw,40px);border:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.auth-layout .auth-brand{display:none}
+.auth-layout .auth-card-pro .auth-icon{width:46px;height:46px;margin:0 auto 17px;background:linear-gradient(135deg,#d9ebff,#e8ddff);color:#4d65d9}
+.auth-layout .auth-card-pro h2{font-size:27px}
+.auth-layout .auth-card-pro>p{font-size:12px}
+.auth-layout .auth-card-pro form>input,.auth-layout .password-field{height:47px;border-radius:11px}
+.auth-layout .password-field input{height:45px}
+.auth-layout .auth-submit{height:48px;border-radius:11px;font-size:12px}
+.auth-layout .auth-socials button{min-height:46px;border-radius:11px}
+.auth-layout .auth-switch{font-size:11px}
+.auth-layout .auth-card-pro>small{font-size:9px}
+.confirm-backdrop{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:#101a35a8;backdrop-filter:blur(7px);animation:confirm-fade .16s ease-out}
+.confirm-modal{width:min(100%,420px);padding:27px;border:1px solid #e2e8f8;border-radius:20px;background:#fff;box-shadow:0 28px 90px #0d1a3b55;animation:confirm-rise .2s ease-out}
+.confirm-icon{width:42px;height:42px;display:grid;place-items:center;margin-bottom:17px;border:1px solid #f2d9e0;border-radius:13px;background:linear-gradient(135deg,#fff0f3,#f3edff);color:#bd557c;font-size:18px;font-weight:800}
+.confirm-modal h2{margin:0;color:#26365d;font-size:19px;letter-spacing:-.4px}
+.confirm-modal p{margin:10px 0 23px;color:#75829e;font-size:12px;line-height:1.75}
+.confirm-actions{display:flex;justify-content:flex-end;gap:9px}
+.confirm-actions button{min-height:40px;padding:0 14px;border:1px solid #e1e7f3;border-radius:10px;font-size:11px;font-weight:750;cursor:pointer;transition:.16s}
+.confirm-cancel{background:#fff;color:#62708e}
+.confirm-cancel:hover{border-color:#b9c8e8;background:#f6f8ff;color:#3c5fa9}
+.confirm-delete{border-color:#d85c82!important;background:linear-gradient(105deg,#d94f79,#a64de0);color:#fff;box-shadow:0 7px 17px #b24e9b30}
+.confirm-delete:hover{filter:brightness(1.06);transform:translateY(-1px)}
+@keyframes confirm-fade{from{opacity:0}to{opacity:1}}
+@keyframes confirm-rise{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:850px){.auth-layout{grid-template-columns:1fr;max-width:520px;min-height:0;padding:10px;gap:0}.auth-showcase{display:none}.auth-layout .auth-card-pro{padding:30px 22px}.auth-layout .auth-brand{display:flex}.auth-layout .auth-card-pro .auth-icon{margin-top:4px}}
+@media(max-width:500px){.auth-screen{padding:12px}.auth-layout{border-radius:21px}.confirm-modal{padding:22px}.confirm-actions button{flex:1;padding:0 9px}}
