@@ -5,7 +5,8 @@ import type { User } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase";
 
 type Provider = { id: string; name: string; model: string; enabled: boolean; accent: "blue" | "purple" };
-type Message = { id?: string; role: "user" | "assistant"; content: string; created_at?: string };
+type Attachment = { name: string; path: string; type: string; url?: string };
+type Message = { id?: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; created_at?: string };
 type Chat = { id: string; title: string; created_at: string; updated_at: string };
 type StoredFile = { name: string; id: string; metadata?: { size?: number; mimetype?: string; lastModified?: string } | null; created_at?: string | null };
 
@@ -22,6 +23,7 @@ function formatBytes(bytes = 0) {
 function safeName(name: string) {
   return name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-100) || "file";
 }
+function extractArtifact(content: string) { const match = content.match(/\x60\x60\x60([a-zA-Z0-9_-]*)\\s*\\n([\\s\\S]*?)\x60\x60\x60/); if (!match) return null; const lang = (match[1] || "txt").toLowerCase(); const ext = ({ javascript:"js",js:"js",typescript:"ts",ts:"ts",tsx:"tsx",jsx:"jsx",html:"html",css:"css",json:"json",python:"py",py:"py",sql:"sql",markdown:"md",md:"md",xml:"xml",svg:"svg",sh:"sh",bash:"sh" } as Record<string,string>)[lang] || "txt"; return { code: match[2], ext, lang }; }
 function chatTitle(text: string) {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > 42 ? clean.slice(0, 42).trimEnd() + "…" : clean || "New conversation";
@@ -50,6 +52,10 @@ export default function Home() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatNotice, setChatNotice] = useState("");
+  const [pendingImages, setPendingImages] = useState<{ file: File; preview: string }[]>([]);
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const imageInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const supabase = getSupabase();
@@ -102,10 +108,10 @@ export default function Home() {
     if (!supabase || !user || !selectedChatId) { setMessages([]); return; }
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase.from("chat_messages").select("id,role,content,created_at").eq("chat_id", selectedChatId).order("created_at", { ascending: true });
+      const { data, error } = await supabase.from("chat_messages").select("id,role,content,attachments,created_at").eq("chat_id", selectedChatId).order("created_at", { ascending: true });
       if (cancelled) return;
-      if (error) setError("Couldn't open this conversation: " + error.message);
-      else setMessages((data || []) as Message[]);
+      if (error) setError("Unable to open this conversation: " + error.message);
+      else { const rows = (data || []) as Message[]; const hydrated = await Promise.all(rows.map(async (row) => ({ ...row, attachments: await Promise.all((row.attachments || []).map(async (a) => { const { data: signed } = await supabase.storage.from("user-files").createSignedUrl(a.path, 3600); return { ...a, url: signed?.signedUrl }; })) }))); if (!cancelled) setMessages(hydrated); }
     })();
     return () => { cancelled = true; };
   }, [supabase, user?.id, selectedChatId]);
@@ -174,44 +180,77 @@ export default function Home() {
   async function submit(e?: FormEvent) {
     e?.preventDefault();
     const text = prompt.trim();
-    if (!text || loading) return;
+    const images = pendingImages;
+    if ((!text && images.length === 0) || loading) return;
     if (!supabase || !user) { setError("Sign in to save your conversations."); return; }
     if (activeModels.length === 0) { setError("Turn on at least one AI to start chatting."); return; }
-    setError(""); setChatNotice(""); setLoading(true); setPrompt("");
+    setError(""); setChatNotice(""); setLoading(true); setPrompt(""); setPendingImages([]);
     let chatId = selectedChatId;
     let isNew = false;
     try {
       if (!chatId) {
-        const { data, error } = await supabase.from("chats").insert({ user_id: user.id, title: chatTitle(text) }).select("id,title,created_at,updated_at").single();
-        if (error || !data) throw new Error("Couldn't create a conversation: " + (error?.message || "Unknown error"));
-        chatId = data.id; isNew = true;
-        setSelectedChatId(chatId);
-        setChats((current) => [data as Chat, ...current]);
+        const { data, error } = await supabase.from("chats").insert({ user_id: user.id, title: chatTitle(text || "Image conversation") }).select("id,title,created_at,updated_at").single();
+        if (error || !data) throw new Error("Unable to create conversation: " + (error?.message || "Unknown error"));
+        chatId = data.id; isNew = true; setSelectedChatId(chatId); setChats((current) => [data as Chat, ...current]);
       }
+      const uploaded: Attachment[] = [];
+      const imagePayload: string[] = [];
+      for (const item of images) {
+        imagePayload.push(item.preview);
+        const path = user.id + "/" + chatId + "/" + crypto.randomUUID() + "-" + safeName(item.file.name);
+        const { error: uploadError } = await supabase.storage.from("user-files").upload(path, item.file, { upsert: false, contentType: item.file.type });
+        if (uploadError) throw new Error("Image upload failed: " + uploadError.message);
+        const { data: signed } = await supabase.storage.from("user-files").createSignedUrl(path, 3600);
+        uploaded.push({ name: item.file.name, path, type: item.file.type, url: signed?.signedUrl });
+      }
+      const userText = text || "Please inspect the attached image(s).";
+      const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: userText, attachments: uploaded });
+      if (saveUserError) throw new Error("Unable to save your message: " + saveUserError.message);
+      setMessages((current) => [...current, { role: "user", content: userText, attachments: uploaded }]);
       const previousHistory = messages.map(({ role, content }) => ({ role, content })).slice(-10);
-      const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: text });
-      if (saveUserError) throw new Error("Couldn't save your message: " + saveUserError.message);
-      setMessages((current) => [...current, { role: "user", content: text }]);
-      if (isNew) {
-        const { error: titleError } = await supabase.from("chats").update({ title: chatTitle(text), updated_at: new Date().toISOString() }).eq("id", chatId).eq("user_id", user.id);
-        if (titleError) setChatNotice("Message saved, but the chat title couldn't be updated.");
-      }
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, history: previousHistory, enabledProviders: activeModels.map((model) => model.id) }),
-      });
+      if (isNew) await supabase.from("chats").update({ title: chatTitle(text || "Image conversation"), updated_at: new Date().toISOString() }).eq("id", chatId).eq("user_id", user.id);
+      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: userText, images: imagePayload, history: previousHistory, enabledProviders: activeModels.map((model) => model.id) }) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Couldn't get a response. Please try again.");
+      if (!response.ok) throw new Error(data.error || "Unable to get a response. Please try again.");
       const answer = data.final || "I couldn't form a response. Please try again.";
-      const { error: saveAssistantError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "assistant", content: answer });
+      const { error: saveAssistantError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "assistant", content: answer, attachments: [] });
       if (saveAssistantError) throw new Error("AI answered, but saving its reply failed: " + saveAssistantError.message);
       setMessages((current) => [...current, { role: "assistant", content: answer }]);
-      setChats((current) => current.map((chat) => chat.id === chatId ? { ...chat, title: isNew ? chatTitle(text) : chat.title, updated_at: new Date().toISOString() } : chat).sort((a,b) => b.updated_at.localeCompare(a.updated_at)));
+      setChats((current) => current.map((chat) => chat.id === chatId ? { ...chat, title: isNew ? chatTitle(text || "Image conversation") : chat.title, updated_at: new Date().toISOString() } : chat).sort((a,b) => b.updated_at.localeCompare(a.updated_at)));
       if (data.errors?.length) setError(data.errors.join(" · "));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally { setLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong."); }
+    finally { setLoading(false); }
+  }
+
+  function addImages(files: FileList | File[]) {
+    const list = Array.from(files);
+    const picked = list.filter((file) => file.type.startsWith("image/"));
+    if (picked.length !== list.length) setError("Only image files can be attached in chat.");
+    for (const file of picked) {
+      if (file.size > 8 * 1024 * 1024) { setError(file.name + " is larger than the 8 MB chat-image limit."); continue; }
+      const reader = new FileReader();
+      reader.onload = () => setPendingImages((current) => [...current, { file, preview: String(reader.result) }]);
+      reader.readAsDataURL(file);
+    }
+  }
+
+  async function copyMessage(content: string) {
+    try { await navigator.clipboard.writeText(content); setChatNotice("Copied message to clipboard."); }
+    catch { setError("Clipboard access was blocked by your browser."); }
+  }
+
+  function downloadArtifact(content: string) {
+    const artifact = extractArtifact(content);
+    const body = artifact?.code || content;
+    const ext = artifact?.ext || "txt";
+    const blob = new Blob([body], { type: ext === "html" ? "text/html" : ext === "json" ? "application/json" : "text/plain" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "ai-duo-file." + ext; a.click(); URL.revokeObjectURL(url);
+  }
+
+  function runHtml(content: string) {
+    const artifact = extractArtifact(content);
+    if (!artifact || artifact.ext !== "html") return;
+    setPreviewHtml(artifact.code); setPreviewOpen(true);
   }
 
   function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -370,7 +409,7 @@ export default function Home() {
                   {messages.map((message, index) => (
                     <article className={`message message-${message.role}`} key={message.id || index}>
                       {message.role === "assistant" && <div className="assistant-avatar">✳</div>}
-                      <div className="message-content">{message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}<div className="message-text">{message.content}</div></div>
+                      <div className="message-content">{message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}<div className="message-text">{message.content}</div>{message.attachments?.length ? <div className="message-attachments">{message.attachments.map((a) => a.url ? <a key={a.path} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} /><small>{a.name}</small></a> : null)}</div> : null}{message.role === "assistant" ? <div className="message-tools"><button onClick={() => void copyMessage(message.content)}>Copy</button><button onClick={() => downloadArtifact(message.content)}>Download file</button>{extractArtifact(message.content)?.ext === "html" ? <button className="run-html" onClick={() => runHtml(message.content)}>▶ Run HTML</button> : null}</div> : null}</div>
                     </article>
                   ))}
                   {loading && <div className="thinking-row"><div className="assistant-avatar">✳</div><div><div className="message-author">AI DUO IS THINKING</div><div className="thinking-dots"><i /><i /><i /><span>Combining perspectives…</span></div></div></div>}
@@ -381,8 +420,10 @@ export default function Home() {
             <div className="composer-wrap">
               {error && <div className="inline-error">{error}</div>}
               <form className="chat-composer" onSubmit={submit}>
+                <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={(e) => e.target.files && addImages(e.target.files)} />
+                {pendingImages.length > 0 && <div className="pending-images">{pendingImages.map((item, i) => <div key={item.preview}><img src={item.preview} alt={item.file.name} /><button type="button" onClick={() => setPendingImages((current) => current.filter((_, index) => index !== i))}>×</button></div>)}</div>}
                 <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={onComposerKeyDown} placeholder="Ask your AI team anything…" rows={1} maxLength={12000} disabled={loading} aria-label="Write your message" />
-                <div className="composer-bottom"><div className="composer-hints"><span className="hint-pill">✧ {activeModels.length} models active</span><span>Enter to send · Shift + Enter for a new line</span></div><button type="submit" disabled={loading || !prompt.trim() || activeModels.length === 0} aria-label="Send message">{loading ? <span className="send-spinner" /> : "↑"}</button></div>
+                <div className="composer-bottom"><div className="composer-hints"><button type="button" className="attach-button" onClick={() => imageInput.current?.click()}>＋ Image</button><span className="hint-pill">✧ {activeModels.length} models active</span><span>Enter to send · Shift + Enter for a new line</span></div><button type="submit" disabled={loading || (!prompt.trim() && pendingImages.length === 0) || activeModels.length === 0} aria-label="Send message">{loading ? <span className="send-spinner" /> : "↑"}</button></div>
               </form>
               <div className="disclaimer">AI can make mistakes. Verify important information before relying on it.</div>
             </div>
@@ -402,6 +443,7 @@ export default function Home() {
             ))}</div>
           </div>
         )}
+        {previewOpen && <aside className="preview-drawer"><div className="preview-head"><div><b>HTML Preview</b><small>Sandboxed live output</small></div><div><button onClick={() => downloadArtifact(" ```html\n" + previewHtml + "\n``` ")}>Download</button><button onClick={() => setPreviewOpen(false)} aria-label="Close preview">×</button></div></div><iframe title="Generated HTML preview" sandbox="allow-scripts" srcDoc={previewHtml} /></aside>}
       </section>
     </main>
   );
