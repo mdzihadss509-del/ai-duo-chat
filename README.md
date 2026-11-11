@@ -12,10 +12,15 @@ A unified chat interface powered by two selectable AI providers: Groq and OpenRo
    - `OPENROUTER_API_KEY` — https://openrouter.ai/keys
 5. Start the app with `npm run dev`.
 
+## Cloudflare Workers AI
+
+Cloudflare Workers AI is available as a third selectable provider. Configure these server-side environment variables in Vercel: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and optionally `CLOUDFLARE_MODEL` (defaults to `@cf/meta/llama-3.1-8b-instruct`). The token must have Account > Workers AI > Read permission. Never put the token in client-side code or commit it to Git. The provider remains visibly marked as setup-required until both the account ID and token are configured.
+
 ## Optional model overrides
 
 - `GROQ_MODEL` defaults to `openai/gpt-oss-20b`.
 - `OPENROUTER_MODEL` defaults to `openrouter/free`.
+- `CLOUDFLARE_MODEL` defaults to `@cf/meta/llama-3.1-8b-instruct`.
 
 ## Vercel
 
