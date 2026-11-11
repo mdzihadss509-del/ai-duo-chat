@@ -1,6 +1,6 @@
 # AI Duo Chat
 
-A unified chat interface powered by two selectable AI providers: Groq and OpenRouter. Enabled providers answer in parallel, then one provider attempts a bounded synthesis so the user sees one response.
+A unified chat interface with selectable Groq, OpenRouter, and Cloudflare Workers AI providers. Enabled providers answer in parallel, then one provider attempts a bounded synthesis so the user sees one response.
 
 ## Local setup
 
@@ -24,7 +24,7 @@ Cloudflare Workers AI is available as a third selectable provider. Configure the
 
 ## Vercel
 
-Add the two required variables above to the Production environment (and Preview/Development too if you use those environments), then redeploy. Redeploy after changing environment variables so the new deployment receives them.
+Add `GROQ_API_KEY` and `OPENROUTER_API_KEY` to the Production environment (and Preview/Development too if you use those environments). To enable Cloudflare, also add `CLOUDFLARE_API_TOKEN`; the account ID and model are already set in this project. Redeploy after changing environment variables so the new deployment receives them.
 
 ## Request flow and limits
 
