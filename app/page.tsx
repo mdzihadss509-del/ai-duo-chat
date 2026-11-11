@@ -59,6 +59,7 @@ export default function Home() {
   const [pendingImages, setPendingImages] = useState<{ file: File; preview: string }[]>([]);
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void> } | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -179,8 +180,6 @@ export default function Home() {
 
   async function deleteChat(chatId: string) {
     if (!supabase || !user) return;
-    const target = chats.find((chat) => chat.id === chatId);
-    if (!window.confirm('Delete "' + (target?.title || "this conversation") + '" and all its messages permanently?')) return;
     const { data: messageRows } = await supabase.from("chat_messages").select("attachments").eq("chat_id", chatId).eq("user_id", user.id);
     const attachmentPaths = (messageRows || []).flatMap((row: any) => Array.isArray(row.attachments) ? row.attachments.map((item: Attachment) => item.path).filter(Boolean) : []);
     if (attachmentPaths.length) {
@@ -380,7 +379,7 @@ export default function Home() {
   }
 
   async function deleteFile(path: string) {
-    if (!supabase || !user || !path.startsWith(user.id + "/") || !window.confirm("Delete this file permanently from Supabase Storage and remove its chat references?")) return;
+    if (!supabase || !user || !path.startsWith(user.id + "/")) return;
     const { error } = await supabase.storage.from("user-files").remove([path]);
     if (error) { setFileError(error.message); return; }
     const { data: rows, error: rowsError } = await supabase.from("chat_messages").select("id,attachments").eq("user_id", user.id);
@@ -397,6 +396,16 @@ export default function Home() {
     }
     setFiles((current) => current.filter((file) => file.path !== path));
     setMessages((current) => current.map((message) => ({ ...message, attachments: (message.attachments || []).filter((attachment) => attachment.path !== path) })));
+  }
+
+  function askDeleteChat(chatId: string) {
+    const target = chats.find((chat) => chat.id === chatId);
+    setConfirmDialog({ title: "Delete conversation?", message: `“${target?.title || "This conversation"}” and its messages will be permanently deleted. Uploaded attachments in this chat will also be removed from Storage.`, confirmLabel: "Yes, delete chat", onConfirm: () => deleteChat(chatId) });
+  }
+
+  function askDeleteFile(path: string) {
+    const target = files.find((file) => file.path === path);
+    setConfirmDialog({ title: "Delete this file?", message: `${target?.name || "This file"} will be permanently deleted from Supabase Storage and removed from linked chat attachments.`, confirmLabel: "Yes, delete file", onConfirm: () => deleteFile(path) });
   }
 
   async function downloadFile(path: string) {
@@ -433,6 +442,8 @@ export default function Home() {
   if (!supabase) return <main className="auth-screen"><div className="auth-card"><div className="auth-icon">!</div><h2>Supabase isn't configured</h2><p>Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to the Vercel project environment.</p></div></main>;
   if (!user) return (
     <main className="auth-screen">
+      <div className="auth-layout">
+      <section className="auth-showcase"><div className="auth-showcase-brand"><span className="brand-symbol"><i/><i/><i/><i/></span><span>AI <b>Duo</b></span></div><div className="auth-showcase-copy"><span className="auth-kicker">ONE WORKSPACE. TWO PERSPECTIVES.</span><h1>Think bigger.<br/><em>Build smarter.</em></h1><p>Bring your AI team, conversations and files together in one private workspace.</p><div className="auth-feature"><span>✦</span><div><b>Unified AI responses</b><small>Multiple AI providers, one conversation</small></div></div><div className="auth-feature"><span>◈</span><div><b>Private chat history</b><small>Your conversations stay with your account</small></div></div><div className="auth-feature"><span>▧</span><div><b>One file library</b><small>Keep uploads and generated files together</small></div></div></div><div className="auth-showcase-foot">AI DUO · PRIVATE AI WORKSPACE</div></section>
       <div className="auth-card auth-card-pro">
         <a className="brand auth-brand" href="#"><span className="brand-symbol"><i/><i/><i/><i/></span><span>AI <b>Duo</b></span></a>
         <div className="auth-icon">⌑</div>
@@ -457,6 +468,7 @@ export default function Home() {
         <div className="auth-switch">{authMode === "signin" ? "New to AI Duo?" : "Already have an account?"} <button type="button" onClick={() => { setAuthMode(authMode === "signin" ? "signup" : "signin"); setAuthMessage(""); }}> {authMode === "signin" ? "Create account" : "Sign in"}</button></div>
         <small>Your chats and files are private to your signed-in account. Your session {rememberMe ? "will stay active on this device" : "will end when this browser session closes"}.</small>
       </div>
+      </div>
     </main>
   );
 
@@ -478,7 +490,7 @@ export default function Home() {
           {chatBusy && chats.length === 0 ? <div className="history-empty">Loading conversations…</div> : chats.length === 0 ? <div className="history-empty">Your saved chats will appear here.</div> : chats.map((chat) => (
             <div className={`history-item ${selectedChatId === chat.id && activeTab === "chat" ? "history-active" : ""}`} key={chat.id}>
               <button className="history-open" onClick={() => void openChat(chat.id)} title={chat.title}><span>◷</span><b>{chat.title}</b></button>
-              <button className="history-delete" onClick={() => void deleteChat(chat.id)} title="Delete conversation" aria-label={`Delete ${chat.title}`}>×</button>
+              <button className="history-delete" onClick={() => askDeleteChat(chat.id)} title="Delete conversation" aria-label={`Delete ${chat.title}`}>×</button>
             </div>
           ))}
         </div>
@@ -524,7 +536,7 @@ export default function Home() {
                   {messages.map((message, index) => (
                     <article className={`message message-${message.role}`} key={message.id || index}>
                       {message.role === "assistant" && <div className="assistant-avatar">✳</div>}
-                      <div className="message-content">{message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}<div className="message-text">{message.content}</div>{message.attachments?.length ? <div className="message-attachments">{message.attachments.map((a) => a.url ? <a key={a.path} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} /><small>{a.name}</small></a> : null)}</div> : null}{message.role === "assistant" ? <div className="message-tools"><button onClick={() => void copyMessage(message.content)}>Copy</button><button onClick={() => downloadArtifact(message.content)}>Download file</button>{extractArtifact(message.content)?.ext === "html" ? <button className="run-html" onClick={() => runHtml(message.content)}>▶ Run HTML</button> : null}</div> : null}</div>
+                      <div className="message-content">{message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}<div className="message-text">{message.content}</div>{message.attachments?.length ? <div className="message-attachments">{message.attachments.map((a) => a.url ? <a key={a.path} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} /><small>{a.name}</small></a> : null)}</div> : null}{message.role === "assistant" ? <div className="message-tools"><button onClick={() => void copyMessage(message.content)}>Copy</button>{extractArtifact(message.content) ? <button onClick={() => downloadArtifact(message.content)}>↓ Download {extractArtifact(message.content)?.ext.toUpperCase()}</button> : null}{extractArtifact(message.content)?.ext === "html" ? <button className="run-html" onClick={() => runHtml(message.content)}>▶ Run HTML</button> : null}</div> : null}</div>
                     </article>
                   ))}
                   {loading && <div className="thinking-row"><div className="assistant-avatar">✳</div><div><div className="message-author">AI DUO IS THINKING</div><div className="thinking-dots"><i /><i /><i /><span>Combining perspectives…</span></div></div></div>}
@@ -554,12 +566,13 @@ export default function Home() {
             {fileError && <div className="inline-error file-error">{fileError}</div>}
             <div className="files-list-header"><div><h2>Uploaded files</h2><span>{files.length} items · private to your account</span></div><button onClick={() => void loadFiles()}>↻ Refresh</button></div>
             <div className="file-list">{filesLoading ? <div className="file-empty">Loading files…</div> : files.length === 0 ? <div className="file-empty"><span>▧</span><b>No files yet</b><small>Files you upload will appear here.</small></div> : files.map((file) => (
-              <div className="file-row" key={file.path}><div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div><div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"} · {file.path.split("/").length > 2 ? "Chat attachment" : "My upload"}</small></div><div className="file-actions">{file.name.toLowerCase().endsWith(".html") && <button className="run-html" onClick={() => void runUploadedHtml(file.path)} title="Run HTML in sandbox">▶</button>}<button onClick={() => void previewFile(file.path)} title="Preview">↗</button><button onClick={() => void downloadFile(file.path)} title="Download">↓</button><button className="delete-action" onClick={() => void deleteFile(file.path)} title="Delete from Supabase">×</button></div></div>
+              <div className="file-row" key={file.path}><div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div><div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"} · {file.path.split("/").length > 2 ? "Chat attachment" : "My upload"}</small></div><div className="file-actions">{file.name.toLowerCase().endsWith(".html") && <button className="run-html" onClick={() => void runUploadedHtml(file.path)} title="Run HTML in sandbox">▶</button>}<button onClick={() => void previewFile(file.path)} title="Preview">↗</button><button onClick={() => void downloadFile(file.path)} title="Download">↓</button><button className="delete-action" onClick={() => askDeleteFile(file.path)} title="Delete from Supabase">×</button></div></div>
             ))}</div>
           </div>
         )}
         {previewOpen && <aside className="preview-drawer"><div className="preview-head"><div><b>HTML Preview</b><small>Sandboxed live output</small></div><div><button onClick={() => downloadArtifact(" ```html\n" + previewHtml + "\n``` ")}>Download</button><button onClick={() => setPreviewOpen(false)} aria-label="Close preview">×</button></div></div><iframe title="Generated HTML preview" sandbox="allow-scripts" srcDoc={previewHtml} /></aside>}
       </section>
+      {confirmDialog && <div className="confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmDialog(null); }}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><div className="confirm-icon">!</div><h2 id="confirm-title">{confirmDialog.title}</h2><p>{confirmDialog.message}</p><div className="confirm-actions"><button type="button" className="confirm-cancel" onClick={() => setConfirmDialog(null)}>No, keep it</button><button type="button" className="confirm-delete" onClick={async () => { const action = confirmDialog.onConfirm; setConfirmDialog(null); await action(); }}>{confirmDialog.confirmLabel}</button></div></section></div>}
     </main>
   );
 }
