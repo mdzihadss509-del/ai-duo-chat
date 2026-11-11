@@ -42,8 +42,8 @@ function extractArtifact(content: string) {
   if (start >= 0) {
     const source = content.slice(start).trim();
     const closingTag = source.match(/<\/html\s*>/i);
-    const end = closingTag?.index;
-    return { code: end !== undefined ? source.slice(0, end + closingTag[0].length) : source, ext: "html", lang: "html" };
+    if (!closingTag || closingTag.index === undefined) return { code: source, ext: "html", lang: "html" };
+    return { code: source.slice(0, closingTag.index + closingTag[0].length), ext: "html", lang: "html" };
   }
   return null;
 }
