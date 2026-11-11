@@ -6,7 +6,7 @@ type Provider = "groq" | "openrouter";
 type Message = { role: "user" | "assistant"; content: string };
 type ModelState = { id: Provider; name: string; model: string; enabled: boolean; color: string };
 
-const initialModels: ModelState[] = [
+// Deliberately fixed provider roster: only these two models are supported.\nconst initialModels: ModelState[] = [
   { id: "groq", name: "Astra Core", model: "GPT-OSS 20B · Groq", enabled: true, color: "groq" },
   { id: "openrouter", name: "Nova Reasoner", model: "Free model routing · OpenRouter", enabled: true, color: "openrouter" },
 ];
@@ -80,7 +80,7 @@ export default function Home() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-build="duo-only-2026-11-11">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-top">
           <a className="brand" href="#" onClick={newChat}><span className="brand-mark">✳</span><span>AI Duo</span></a>
@@ -90,7 +90,7 @@ export default function Home() {
         <button className="new-chat" onClick={newChat}><span>＋</span> New chat</button>
 
         <div className="sidebar-section">
-          <div className="section-label">YOUR AI TEAM <span>{activeModels.length} ACTIVE</span></div>
+          <div className="section-label">YOUR AI TEAM <span>{activeModels.length} / 2 ACTIVE</span></div>
           <div className="model-list">
             {models.map((model) => (
               <div className={`model-row ${model.enabled ? "model-enabled" : ""}`} key={model.id}>
@@ -130,9 +130,9 @@ export default function Home() {
           {messages.length === 0 ? (
             <div className="welcome">
               <div className="welcome-mark">✳</div>
-              <div className="welcome-kicker">ONE CHAT. MULTIPLE MINDS.</div>
-              <h1>What can we<br /><em>figure out together?</em></h1>
-              <p>Ask anything. Your AI team will work behind the scenes and bring you one thoughtful answer.</p>
+              <div className="welcome-kicker">TWO MODELS. ONE UNIFIED AI.</div>
+              <h1>One question.<br /><em>Two minds. One answer.</em></h1>
+              <p>Ask anything. Astra Core and Nova Reasoner work together behind the scenes to bring you one thoughtful answer.</p>
               <div className="suggestions">
                 {["Explain a complex topic simply", "Help me solve a problem", "Brainstorm something creative"].map((item) => (
                   <button key={item} onClick={() => setPrompt(item)}>{item}<span>↗</span></button>
