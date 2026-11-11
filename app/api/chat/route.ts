@@ -5,15 +5,15 @@ export const maxDuration = 60;
 
 type ChatResult = { text?: string; error?: string };
 
-async function askModel(url: string, key: string, model: string, prompt: string): Promise<ChatResult> {
+async function askGroq(prompt: string, key: string, model: string): Promise<ChatResult> {
   try {
-    const response = await fetch(url, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You are a thoughtful, accurate assistant. Answer the user's request clearly. State uncertainty rather than inventing facts." },
+          { role: "system", content: "You are a thoughtful, accurate assistant. Answer clearly and state uncertainty rather than inventing facts." },
           { role: "user", content: prompt }
         ],
         temperature: 0.7
@@ -21,11 +21,32 @@ async function askModel(url: string, key: string, model: string, prompt: string)
       signal: AbortSignal.timeout(45000)
     });
     const data = await response.json();
-    if (!response.ok) return { error: data?.error?.message || `Provider returned HTTP ${response.status}` };
+    if (!response.ok) return { error: data?.error?.message || `Groq returned HTTP ${response.status}` };
     const text = data?.choices?.[0]?.message?.content;
-    return typeof text === "string" && text.trim() ? { text: text.trim() } : { error: "Provider returned an empty response." };
+    return typeof text === "string" && text.trim() ? { text: text.trim() } : { error: "Groq returned an empty response." };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Provider request failed." };
+    return { error: e instanceof Error ? e.message : "Groq request failed." };
+  }
+}
+
+async function askGemini(prompt: string, key: string, model: string): Promise<ChatResult> {
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: "You are a thoughtful, accurate assistant. Answer clearly and state uncertainty rather than inventing facts." }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7 }
+      }),
+      signal: AbortSignal.timeout(45000)
+    });
+    const data = await response.json();
+    if (!response.ok) return { error: data?.error?.message || `Gemini returned HTTP ${response.status}` };
+    const text = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("").trim();
+    return text ? { text } : { error: "Gemini returned an empty response." };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Gemini request failed." };
   }
 }
 
@@ -36,43 +57,40 @@ export async function POST(request: Request) {
     if (!prompt) return NextResponse.json({ error: "Please enter a prompt." }, { status: 400 });
     if (prompt.length > 12000) return NextResponse.json({ error: "Prompt is too long (12,000 character limit)." }, { status: 400 });
 
-    const openaiKey = process.env.OPENAI_API_KEY;
-    const deepseekKey = process.env.DEEPSEEK_API_KEY;
-    if (!openaiKey || !deepseekKey) {
-      return NextResponse.json({ error: "API keys are not configured. Add OPENAI_API_KEY and DEEPSEEK_API_KEY in Vercel → Project Settings → Environment Variables, then redeploy." }, { status: 503 });
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!geminiKey || !groqKey) {
+      return NextResponse.json({ error: "Free API keys are not configured. Add GEMINI_API_KEY and GROQ_API_KEY in Vercel → Project Settings → Environment Variables, then redeploy." }, { status: 503 });
     }
 
-    const [openai, deepseek] = await Promise.all([
-      askModel("https://api.openai.com/v1/chat/completions", openaiKey, process.env.OPENAI_MODEL || "gpt-4.1-mini", prompt),
-      askModel("https://api.deepseek.com/chat/completions", deepseekKey, process.env.DEEPSEEK_MODEL || "deepseek-chat", prompt)
+    const [gemini, groq] = await Promise.all([
+      askGemini(prompt, geminiKey, process.env.GEMINI_MODEL || "gemini-2.5-flash"),
+      askGroq(prompt, groqKey, process.env.GROQ_MODEL || "openai/gpt-oss-20b")
     ]);
 
     const errors: string[] = [];
-    if (openai.error) errors.push(`OpenAI: ${openai.error}`);
-    if (deepseek.error) errors.push(`DeepSeek: ${deepseek.error}`);
-    if (!openai.text && !deepseek.text) {
+    if (gemini.error) errors.push(`Gemini: ${gemini.error}`);
+    if (groq.error) errors.push(`Groq: ${groq.error}`);
+    if (!gemini.text && !groq.text) {
       return NextResponse.json({ error: errors.join(" | ") || "Both providers failed." }, { status: 502 });
     }
 
-    let final = "";
-    const synthesizerKey = openai.text ? openaiKey : deepseekKey;
-    const synthUrl = openai.text ? "https://api.openai.com/v1/chat/completions" : "https://api.deepseek.com/chat/completions";
-    const synthModel = openai.text ? (process.env.OPENAI_MODEL || "gpt-4.1-mini") : (process.env.DEEPSEEK_MODEL || "deepseek-chat");
-    const synthesisPrompt = [
+    const synthesizerPrompt = [
       "Create one high-quality final answer to the user's original prompt using the two independent model responses below.",
       "Compare them, keep correct and useful insights, resolve contradictions carefully, and do not invent facts. If they disagree and evidence is insufficient, state the uncertainty. Do not mention internal orchestration.",
       "ORIGINAL USER PROMPT:", prompt,
-      "OPENAI RESPONSE:", openai.text || "[Unavailable]",
-      "DEEPSEEK RESPONSE:", deepseek.text || "[Unavailable]"
+      "GEMINI RESPONSE:", gemini.text || "[Unavailable]",
+      "GROQ RESPONSE:", groq.text || "[Unavailable]"
     ].join("\n\n");
-    const synthesis = await askModel(synthUrl, synthesizerKey, synthModel, synthesisPrompt);
-    if (synthesis.text) final = synthesis.text;
-    else {
-      errors.push(`Synthesis: ${synthesis.error || "Could not create combined answer"}`);
-      final = [openai.text, deepseek.text].filter(Boolean).join("\n\n---\n\n");
-    }
 
-    return NextResponse.json({ openai: openai.text || "", deepseek: deepseek.text || "", final, errors });
+    const synthesis = gemini.text
+      ? await askGemini(synthesizerPrompt, geminiKey, process.env.GEMINI_MODEL || "gemini-2.5-flash")
+      : await askGroq(synthesizerPrompt, groqKey, process.env.GROQ_MODEL || "openai/gpt-oss-20b");
+
+    let final = synthesis.text || [gemini.text, groq.text].filter(Boolean).join("\n\n---\n\n");
+    if (synthesis.error) errors.push(`Synthesis: ${synthesis.error}`);
+
+    return NextResponse.json({ gemini: gemini.text || "", groq: groq.text || "", final, errors });
   } catch {
     return NextResponse.json({ error: "Invalid request. Please try again." }, { status: 400 });
   }
