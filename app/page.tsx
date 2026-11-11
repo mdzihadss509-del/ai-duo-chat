@@ -2,7 +2,7 @@
 
 import { FormEvent, DragEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getSupabase } from "@/lib/supabase";
+import { getRememberSession, getSupabase, setRememberSession } from "@/lib/supabase";
 
 type Provider = { id: string; name: string; model: string; enabled: boolean; accent: "blue" | "purple" };
 type Attachment = { name: string; path: string; type: string; url?: string };
@@ -41,6 +41,10 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [files, setFiles] = useState<StoredFile[]>([]);
@@ -60,6 +64,8 @@ export default function Home() {
   const endRef = useRef<HTMLDivElement>(null);
   const supabase = getSupabase();
   const activeModels = models.filter((model) => model.enabled);
+
+  useEffect(() => { setRememberMe(getRememberSession()); }, []);
 
   useEffect(() => {
     fetch("/api/chat").then((response) => response.json()).then((data) => {
@@ -260,15 +266,36 @@ export default function Home() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); }
   }
 
-  async function sendMagicLink(e: FormEvent) {
+  async function handleEmailAuth(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !email.trim()) return;
+    if (!supabase || !email.trim() || !password) return;
     setAuthBusy(true); setAuthMessage("");
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+    setRememberSession(rememberMe);
+    const result = authMode === "signup"
+      ? await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
+      : await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (result.error) setAuthMessage(result.error.message);
+    else if (authMode === "signup" && !result.data.session) setAuthMessage("Account created. Check your email to confirm your address, then sign in.");
+    else setAuthMessage(authMode === "signup" ? "Account created successfully." : "Signed in successfully.");
+    setAuthBusy(false);
+  }
+
+  async function signInWithProvider(provider: "google" | "github") {
+    if (!supabase) return;
+    setAuthBusy(true); setAuthMessage("");
+    setRememberSession(rememberMe);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: window.location.origin },
     });
-    setAuthMessage(error ? error.message : "Check your inbox for the secure sign-in link.");
+    if (error) { setAuthMessage(error.message); setAuthBusy(false); }
+  }
+
+  async function resetPassword() {
+    if (!supabase || !email.trim()) { setAuthMessage("Enter your email address first."); return; }
+    setAuthBusy(true); setAuthMessage("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    setAuthMessage(error ? error.message : "Password reset link sent. Check your inbox.");
     setAuthBusy(false);
   }
 
@@ -337,13 +364,30 @@ export default function Home() {
   if (!supabase) return <main className="auth-screen"><div className="auth-card"><div className="auth-icon">!</div><h2>Supabase isn't configured</h2><p>Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to the Vercel project environment.</p></div></main>;
   if (!user) return (
     <main className="auth-screen">
-      <div className="auth-card">
+      <div className="auth-card auth-card-pro">
         <a className="brand auth-brand" href="#"><span className="brand-symbol"><i/><i/><i/><i/></span><span>AI <b>Duo</b></span></a>
-        <div className="auth-icon">⌑</div><h2>Your private AI workspace</h2>
-        <p>Sign in with your email to keep chat history and files synced securely across visits and devices.</p>
-        <form onSubmit={sendMagicLink}><label htmlFor="email">EMAIL ADDRESS</label><input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /><button disabled={authBusy}>{authBusy ? "Sending secure link…" : "Send sign-in link →"}</button></form>
-        {authMessage && <div className={authMessage.startsWith("Check") ? "auth-success" : "auth-error"}>{authMessage}</div>}
-        <small>Only your signed-in account can access your conversations and uploaded files.</small>
+        <div className="auth-icon">⌑</div>
+        <h2>{authMode === "signin" ? "Welcome back" : "Create your account"}</h2>
+        <p>{authMode === "signin" ? "Sign in to continue to your private AI workspace." : "Create one account to save chats, files and settings securely."}</p>
+        <div className="auth-socials">
+          <button type="button" disabled={authBusy} onClick={() => void signInWithProvider("google")}><span className="google-mark">G</span> Continue with Google</button>
+          <button type="button" disabled={authBusy} onClick={() => void signInWithProvider("github")}><span>⌘</span> Continue with GitHub</button>
+        </div>
+        <div className="auth-divider"><span>OR CONTINUE WITH EMAIL</span></div>
+        <form onSubmit={handleEmailAuth}>
+          <label htmlFor="email">EMAIL ADDRESS</label>
+          <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+          <label htmlFor="password">PASSWORD</label>
+          <div className="password-field"><input id="password" type={showPassword ? "text" : "password"} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? "Hide" : "Show"}</button></div>
+          <div className="auth-options">
+            <label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> Remember me</label>
+            {authMode === "signin" && <button type="button" className="text-action" onClick={() => void resetPassword()} disabled={authBusy}>Forgot password?</button>}
+          </div>
+          <button className="auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Please wait…" : authMode === "signin" ? "Sign in →" : "Create account →"}</button>
+        </form>
+        {authMessage && <div className={/successfully|check your email|link sent/i.test(authMessage) ? "auth-success" : "auth-error"}>{authMessage}</div>}
+        <div className="auth-switch">{authMode === "signin" ? "New to AI Duo?" : "Already have an account?"} <button type="button" onClick={() => { setAuthMode(authMode === "signin" ? "signup" : "signin"); setAuthMessage(""); }}> {authMode === "signin" ? "Create account" : "Sign in"}</button></div>
+        <small>Your chats and files are private to your signed-in account. Your session {rememberMe ? "will stay active on this device" : "will end when this browser session closes"}.</small>
       </div>
     </main>
   );
