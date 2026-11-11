@@ -118,7 +118,7 @@ export async function POST(request: Request) {
         ).map((item: HistoryMessage) => ({ role: item.role, content: item.content.slice(0, 12000) }))
       : [];
 
-    const images: string[] = Array.isArray(body.images) ? body.images.filter((image: unknown): image is string => typeof image === "string" && /^data:image\\/(png|jpeg|jpg|webp|gif);base64,/.test(image)).slice(0, 3) : [];
+    const images: string[] = Array.isArray(body.images) ? body.images.filter((image: unknown): image is string => typeof image === "string" && /^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(image)).slice(0, 3) : [];
     if (images.some((image) => image.length > 12_000_000)) return NextResponse.json({ error: "Each image must be under 8 MB." }, { status: 400 });
     const messages = conversationMessages(prompt, history, images);
     const results = await Promise.all(selected.map(async (provider) => ({
