@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const params = useSearchParams();
   const [message, setMessage] = useState("Completing your Google sign-in…");
 
   useEffect(() => {
@@ -18,6 +17,7 @@ export default function AuthCallbackPage() {
         return;
       }
 
+      const params = new URLSearchParams(window.location.search);
       const providerError = params.get("error_description") || params.get("error");
       if (providerError) {
         setMessage(decodeURIComponent(providerError.replace(/\+/g, " ")));
@@ -46,7 +46,7 @@ export default function AuthCallbackPage() {
       if (!cancelled) setMessage(error instanceof Error ? error.message : "Google sign-in failed. Please try again.");
     });
     return () => { cancelled = true; };
-  }, [params, router]);
+  }, [router]);
 
   return (
     <main className="auth-screen">
