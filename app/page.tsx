@@ -2,13 +2,15 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
-type Provider = "gemini" | "groq";
+type Provider = "groq" | "openrouter" | "cloudflare" | "cohere";
 type Message = { role: "user" | "assistant"; content: string };
 type ModelState = { id: Provider; name: string; model: string; enabled: boolean; color: string };
 
 const initialModels: ModelState[] = [
-  { id: "gemini", name: "Gemini", model: "3.8 Flash", enabled: true, color: "gemini" },
-  { id: "groq", name: "Groq · GPT-OSS", model: "20B", enabled: true, color: "groq" },
+  { id: "groq", name: "Groq", model: "GPT-OSS 20B", enabled: true, color: "groq" },
+  { id: "openrouter", name: "OpenRouter", model: "Free model routing", enabled: true, color: "openrouter" },
+  { id: "cloudflare", name: "Cloudflare AI", model: "Llama 3.1 8B", enabled: true, color: "cloudflare" },
+  { id: "cohere", name: "Cohere", model: "Command R7B", enabled: true, color: "cohere" },
 ];
 
 export default function Home() {
@@ -94,7 +96,7 @@ export default function Home() {
           <div className="model-list">
             {models.map((model) => (
               <div className={`model-row ${model.enabled ? "model-enabled" : ""}`} key={model.id}>
-                <div className={`model-avatar ${model.color}`}>{model.id === "gemini" ? "✦" : "◈"}</div>
+                <div className={`model-avatar ${model.color}`}>{model.id === "openrouter" ? "◎" : model.id === "cloudflare" ? "☁" : model.id === "cohere" ? "✧" : "◈"}</div>
                 <div className="model-meta"><strong>{model.name}</strong><small>{model.model}</small></div>
                 <button
                   className={`switch ${model.enabled ? "switch-on" : ""}`}
