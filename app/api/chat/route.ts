@@ -17,7 +17,7 @@ type HistoryMessage = { role: "user" | "assistant"; content: string };
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
   { id: "groq", name: "Astra Core", model: process.env.GROQ_MODEL || "qwen/qwen3.8-27b", baseUrl: "https://api.groq.com/openai/v1/chat/completions", apiKeyEnv: "GROQ_API_KEY", accent: "blue" },
   { id: "openrouter", name: "Nova Reasoner", model: process.env.OPENROUTER_MODEL || "openrouter/free", baseUrl: "https://openrouter.ai/api/v1/chat/completions", apiKeyEnv: "OPENROUTER_API_KEY", accent: "purple" },
-  { id: "cloudflare", name: "Cloudflare Workers AI", model: process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct", baseUrl: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID || "missing"}/ai/v1/chat/completions`, apiKeyEnv: "CLOUDFLARE_API_TOKEN", accent: "blue" },
+  { id: "cloudflare", name: "Cloudflare Workers AI", model: process.env.CLOUDFLARE_MODEL || "@cf/qwen/qwen3.8-27b", baseUrl: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID || "missing"}/ai/v1/chat/completions`, apiKeyEnv: "CLOUDFLARE_API_TOKEN", accent: "blue" },
 ];
 
 const SYSTEM_PROMPT = [
@@ -78,7 +78,7 @@ async function askCloudflareFallback(
           Authorization: `Bearer ${apiToken}`,
         },
         body: JSON.stringify({
-          model: process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct",
+          model: process.env.CLOUDFLARE_MODEL || "@cf/qwen/qwen3.8-27b",
           messages,
           temperature: 0.5,
           max_tokens: 2048,
