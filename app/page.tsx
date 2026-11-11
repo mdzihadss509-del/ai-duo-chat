@@ -384,11 +384,15 @@ export default function Home() {
     const { error } = await supabase.storage.from("user-files").remove([path]);
     if (error) { setFileError(error.message); return; }
     const { data: rows, error: rowsError } = await supabase.from("chat_messages").select("id,attachments").eq("user_id", user.id);
-    if (!rowsError && rows) {
+    if (rowsError) setFileError("File was deleted from Storage, but chat references could not be checked: " + rowsError.message);
+    else if (rows) {
       for (const row of rows as Array<{id:string;attachments:Attachment[] | null}>) {
         const current = Array.isArray(row.attachments) ? row.attachments : [];
         const next = current.filter((attachment) => attachment.path !== path);
-        if (next.length !== current.length) await supabase.from("chat_messages").update({ attachments: next }).eq("id", row.id).eq("user_id", user.id);
+        if (next.length !== current.length) {
+          const { error: updateError } = await supabase.from("chat_messages").update({ attachments: next }).eq("id", row.id).eq("user_id", user.id);
+          if (updateError) setFileError("File was deleted, but one chat reference could not be cleaned: " + updateError.message);
+        }
       }
     }
     setFiles((current) => current.filter((file) => file.path !== path));
