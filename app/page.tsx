@@ -4,7 +4,7 @@ import { FormEvent, DragEvent, KeyboardEvent, useEffect, useRef, useState } from
 import type { User } from "@supabase/supabase-js";
 import { getRememberSession, getSupabase, setRememberSession } from "@/lib/supabase";
 
-type Provider = { id: string; name: string; model: string; enabled: boolean; accent: "blue" | "purple" };
+type Provider = { id: string; name: string; model: string; enabled: boolean; configured?: boolean; accent: "blue" | "purple" };
 type Attachment = { name: string; path: string; type: string; url?: string };
 type Message = { id?: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; created_at?: string };
 type Chat = { id: string; title: string; created_at: string; updated_at: string };
@@ -23,7 +23,30 @@ function formatBytes(bytes = 0) {
 function safeName(name: string) {
   return name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-100) || "file";
 }
-function extractArtifact(content: string) { const match = content.match(/\x60\x60\x60([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)\x60\x60\x60/); if (!match) return null; const lang = (match[1] || "txt").toLowerCase(); const ext = ({ javascript:"js",js:"js",typescript:"ts",ts:"ts",tsx:"tsx",jsx:"jsx",html:"html",css:"css",json:"json",python:"py",py:"py",sql:"sql",markdown:"md",md:"md",xml:"xml",svg:"svg",sh:"sh",bash:"sh" } as Record<string,string>)[lang] || "txt"; return { code: match[2], ext, lang }; }
+function looksLikeHtml(code: string) {
+  const trimmed = code.trim();
+  return /^(?:<!doctype\s+html\b|<html\b|<head\b|<body\b|<main\b|<div\b|<section\b|<article\b|<svg\b)/i.test(trimmed);
+}
+function extractArtifact(content: string) {
+  const matches = Array.from(content.matchAll(/\x60\x60\x60([a-zA-Z0-9_-]*)[ \t]*\r?\n([\s\S]*?)\x60\x60\x60/g));
+  const artifacts = matches.map((match) => {
+    const lang = (match[1] || "").toLowerCase();
+    const ext = ({ javascript:"js",js:"js",typescript:"ts",ts:"ts",tsx:"tsx",jsx:"jsx",html:"html",htm:"html",css:"css",json:"json",python:"py",py:"py",sql:"sql",markdown:"md",md:"md",xml:"xml",svg:"svg",sh:"sh",bash:"sh" } as Record<string,string>)[lang] || "txt";
+    return { code: match[2].trim(), ext, lang };
+  }).filter((artifact) => artifact.code);
+  const html = artifacts.find((artifact) => artifact.ext === "html" || (!artifact.lang && looksLikeHtml(artifact.code)));
+  if (html) return { ...html, ext: "html", lang: "html" };
+  if (artifacts.length) return artifacts[0];
+
+  const start = content.search(/<!doctype\s+html\b|<html\b/i);
+  if (start >= 0) {
+    const source = content.slice(start).trim();
+    const closingTag = source.match(/<\/html\s*>/i);
+    const end = closingTag?.index;
+    return { code: end !== undefined ? source.slice(0, end + closingTag[0].length) : source, ext: "html", lang: "html" };
+  }
+  return null;
+}
 function chatTitle(text: string) {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > 42 ? clean.slice(0, 42).trimEnd() + "…" : clean || "New conversation";
@@ -70,7 +93,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/chat").then((response) => response.json()).then((data) => {
-      if (Array.isArray(data.models) && data.models.length) setModels(data.models.map((model: Provider) => ({ ...model, enabled: true })));
+      if (Array.isArray(data.models) && data.models.length) setModels(data.models.map((model: Provider) => ({ ...model, enabled: model.configured !== false })));
     }).catch(() => undefined);
   }, []);
 
@@ -151,7 +174,7 @@ export default function Home() {
   }, [user?.id, chatBusy]);
 
   function toggleModel(id: string) {
-    setModels((current) => current.map((model) => model.id === id ? { ...model, enabled: !model.enabled } : model));
+    setModels((current) => current.map((model) => model.id === id && model.configured !== false ? { ...model, enabled: !model.enabled } : model));
   }
 
   async function createChat() {
@@ -457,7 +480,7 @@ export default function Home() {
           <label htmlFor="email">EMAIL ADDRESS</label>
           <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           <label htmlFor="password">PASSWORD</label>
-          <div className="password-field"><input id="password" type={showPassword ? "text" : "password"} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={authMode === "signup" ? 8 : undefined} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? "Hide" : "Show"}</button></div>
+          <div className="password-field"><input id="password" type={showPassword ? "text" : "password"} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={authMode === "signup" ? 8 : undefined} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><button className="password-toggle" type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword((v) => !v)}>{showPassword ? "Hide" : "Show"}</button></div>
           <div className="auth-options">
             <label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> Remember me</label>
             {authMode === "signin" && <button type="button" className="text-action" onClick={() => void resetPassword()} disabled={authBusy}>Forgot password?</button>}
@@ -498,9 +521,9 @@ export default function Home() {
         <div className="model-list">
           {models.map((model) => (
             <div className={`model-card ${model.enabled ? "model-on" : ""}`} key={model.id}>
-              <div className={`model-icon ${model.accent}`}>{model.id === "openrouter" ? "◉" : "✧"}</div>
-              <div className="model-meta"><strong>{model.name}</strong><small>{model.model}</small></div>
-              <button className={`switch ${model.enabled ? "switch-on" : ""}`} role="switch" aria-checked={model.enabled} aria-label={`Toggle ${model.name}`} onClick={() => toggleModel(model.id)}><i /></button>
+              <div className={`model-icon ${model.accent}`}>{model.id === "openrouter" ? "◉" : model.id === "cloudflare" ? "☁" : "✧"}</div>
+              <div className="model-meta"><strong>{model.name}</strong><small>{model.model}{model.configured === false ? " · API token required" : ""}</small></div>
+              <button className={`switch ${model.enabled ? "switch-on" : ""}`} role="switch" aria-checked={model.enabled} aria-label={`Toggle ${model.name}`} title={model.configured === false ? "Add CLOUDFLARE_API_TOKEN in Vercel to enable this provider" : `Toggle ${model.name}`} disabled={model.configured === false} onClick={() => toggleModel(model.id)}><i /></button>
             </div>
           ))}
         </div>
@@ -526,7 +549,7 @@ export default function Home() {
                   <div className="welcome-orb"><span>✳</span><i /><b /></div>
                   <h1>Think beyond<br /><em>one perspective.</em></h1>
                   <p>{selectedChatId ? "Continue this saved conversation by sending a message below." : "Your conversations are saved automatically. Start a new chat and return to it anytime."}</p>
-                  <div className="welcome-models"><span className="welcome-model blue-dot">Astra Core</span><span className="plus-dot">+</span><span className="welcome-model purple-dot">Nova Reasoner</span></div>
+                  <div className="welcome-models">{models.filter((model) => model.configured !== false).map((model, index) => <span className={`welcome-model ${index % 2 === 0 ? "blue-dot" : "purple-dot"}`} key={model.id}>{model.name}</span>)}</div>
                   <div className="suggestions">
                     {["Explain a difficult concept", "Help me plan a project", "Review an idea and find gaps"].map((item, i) => <button key={item} onClick={() => setPrompt(item)}><span className="suggestion-icon">{["✧","⌘","◈"][i]}</span><span>{item}</span><b>↗</b></button>)}
                   </div>
