@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
-type Result = { openai?: string; deepseek?: string; final?: string; errors?: string[] };
+type Result = { gemini?: string; groq?: string; final?: string; errors?: string[] };
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -31,13 +31,13 @@ export default function Home() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="#"><span className="brand-mark">✳</span> AI Duo</a>
-        <span className="top-note"><i /> TWO MODELS · ONE ANSWER</span>
+        <span className="top-note"><i /> TWO FREE-TIER MODELS · ONE ANSWER</span>
       </header>
 
       <section className="hero">
         <div className="eyebrow"><span /> INTELLIGENCE, IN PARALLEL</div>
         <h1>Two minds.<br /><em>One better answer.</em></h1>
-        <p className="intro">Ask once. OpenAI and DeepSeek think independently, then combine their insights into one clear response.</p>
+        <p className="intro">Ask once. Gemini and Groq think independently, then combine their insights into one clear response.</p>
       </section>
 
       <form className="composer" onSubmit={submit}>
@@ -56,12 +56,12 @@ export default function Home() {
         <div className="section-heading"><span>01 / INDEPENDENT THINKING</span><div /></div>
         <div className="answer-grid">
           <article className="answer-card">
-            <div className="card-head"><span className="model-icon openai-icon">✳</span><div><h2>OpenAI</h2><small>FIRST PERSPECTIVE</small></div></div>
-            <div className="answer-body">{result.openai || "No response returned."}</div>
+            <div className="card-head"><span className="model-icon openai-icon">✳</span><div><h2>Google Gemini</h2><small>FIRST PERSPECTIVE</small></div></div>
+            <div className="answer-body">{result.gemini || "No response returned."}</div>
           </article>
           <article className="answer-card">
-            <div className="card-head"><span className="model-icon deep-icon">◈</span><div><h2>DeepSeek</h2><small>SECOND PERSPECTIVE</small></div></div>
-            <div className="answer-body">{result.deepseek || "No response returned."}</div>
+            <div className="card-head"><span className="model-icon deep-icon">◈</span><div><h2>Groq · GPT-OSS</h2><small>SECOND PERSPECTIVE</small></div></div>
+            <div className="answer-body">{result.groq || "No response returned."}</div>
           </article>
         </div>
         {result.final && <>
@@ -71,7 +71,7 @@ export default function Home() {
         {result.errors?.length ? <div className="error">{result.errors.join(" · ")}</div> : null}
       </section>}
 
-      <footer><span>AI DUO</span><span>Independent answers. Combined perspective.</span><span>YOUR KEYS STAY SERVER-SIDE</span></footer>
+      <footer><span>AI DUO</span><span>Independent answers. Combined perspective.</span><span>API KEYS STAY SERVER-SIDE · FREE TIERS HAVE LIMITS</span></footer>
     </main>
   );
 }
