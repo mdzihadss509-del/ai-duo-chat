@@ -44,7 +44,7 @@ async function askGemini(prompt: string, key: string, model: string): Promise<Ch
           "You are a thoughtful, accurate assistant. Answer clearly and state uncertainty rather than inventing facts.",
           "",
           prompt
-        ].join("\\n")
+        ].join("\n")
       }),
       signal: AbortSignal.timeout(45000)
     });
