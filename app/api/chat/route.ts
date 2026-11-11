@@ -102,7 +102,14 @@ async function askCloudflareFallback(
 
 async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 20000): Promise<ChatResult> {
   const key = process.env[provider.apiKeyEnv];
-  if (!key) return { error: "Missing server environment variable " + provider.apiKeyEnv };
+  if (!key) {
+    const missingKeyError = "Missing server environment variable " + provider.apiKeyEnv;
+    if (provider.id === "groq") {
+      const fallback = await askCloudflareFallback(messages, missingKeyError, timeout);
+      if (fallback) return fallback;
+    }
+    return { error: missingKeyError };
+  }
   try {
     const isOpenRouter = provider.baseUrl.includes("openrouter.ai");
     const response = await fetch(provider.baseUrl, {
