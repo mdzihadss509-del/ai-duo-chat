@@ -3,288 +3,144 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Provider = "groq" | "openrouter";
+type ProviderConfig = {
+  id: string;
+  name: string;
+  model: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  accent?: "blue" | "purple";
+};
 type ChatResult = { text?: string; error?: string };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
-const SYSTEM_PROMPT =
-  "You are a thoughtful, accurate assistant. Answer naturally as one helpful AI. Use the conversation context, be concise when appropriate, and state uncertainty rather than inventing facts.";
+const DEFAULT_PROVIDERS: ProviderConfig[] = [
+  { id: "groq", name: "Astra Core", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b", baseUrl: "https://api.groq.com/openai/v1/chat/completions", apiKeyEnv: "GROQ_API_KEY", accent: "blue" },
+  { id: "openrouter", name: "Nova Reasoner", model: process.env.OPENROUTER_MODEL || "openrouter/free", baseUrl: "https://openrouter.ai/api/v1/chat/completions", apiKeyEnv: "OPENROUTER_API_KEY", accent: "purple" },
+];
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  groq: "Astra Core",
-  openrouter: "Nova Reasoner",
-};
+const SYSTEM_PROMPT = [
+  "You are AI Duo, one unified AI assistant created by Hades, the BFHades YouTuber.",
+  "If asked who you are, who created you, or who made you, answer exactly: I am an AI assistant created by Hades, the BFHades YouTuber.",
+  "Answer naturally as one helpful AI. Use the conversation context, be clear and accurate, concise when appropriate, and state uncertainty rather than inventing facts.",
+].join(" ");
 
-function chatMessages(input: string) {
+function getProviders(): ProviderConfig[] {
+  const raw = process.env.AI_PROVIDERS_JSON;
+  if (!raw) return DEFAULT_PROVIDERS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_PROVIDERS;
+    const configured = parsed.filter((item): item is ProviderConfig =>
+      item && typeof item.id === "string" && /^[a-z0-9_-]{1,40}$/i.test(item.id) &&
+      typeof item.name === "string" && typeof item.model === "string" &&
+      typeof item.baseUrl === "string" && item.baseUrl.startsWith("https://") &&
+      typeof item.apiKeyEnv === "string" && /^[A-Z0-9_]{3,80}$/.test(item.apiKeyEnv)
+    );
+    return configured.length ? configured.slice(0, 12) : DEFAULT_PROVIDERS;
+  } catch { return DEFAULT_PROVIDERS; }
+}
+
+function conversationMessages(prompt: string, history: HistoryMessage[]) {
   return [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: input },
+    ...history.slice(-10).map((message) => ({ role: message.role, content: message.content.slice(0, 12000) })),
+    { role: "user", content: prompt },
   ];
 }
 
-async function askCompatible(
-  provider: "groq" | "openrouter",
-  input: string,
-  key: string,
-  model: string,
-  timeout = 18000,
-): Promise<ChatResult> {
+async function askProvider(provider: ProviderConfig, messages: { role: string; content: string }[], timeout = 20000): Promise<ChatResult> {
+  const key = process.env[provider.apiKeyEnv];
+  if (!key) return { error: "Missing server environment variable " + provider.apiKeyEnv };
   try {
-    const isOpenRouter = provider === "openrouter";
-    const response = await fetch(
-      isOpenRouter
-        ? "https://openrouter.ai/api/v1/chat/completions"
-        : "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-          ...(isOpenRouter
-            ? {
-                "HTTP-Referer": "https://ai-duo-chat-mdzihadss509-1195.vercel.app",
-                "X-Title": "AI Duo Chat",
-              }
-            : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages: chatMessages(input),
-          temperature: 0.5,
-        }),
-        signal: AbortSignal.timeout(timeout),
+    const isOpenRouter = provider.baseUrl.includes("openrouter.ai");
+    const response = await fetch(provider.baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...(isOpenRouter ? {
+          "HTTP-Referer": "https://ai-duo-chat-mdzihadss509-1195.vercel.app",
+          "X-Title": "AI Duo Chat",
+        } : {}),
       },
-    );
+      body: JSON.stringify({ model: provider.model, messages, temperature: 0.5 }),
+      signal: AbortSignal.timeout(timeout),
+    });
     const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      return {
-        error:
-          data?.error?.message ||
-          `${provider} returned HTTP ${response.status}`,
-      };
-    }
+    if (!response.ok) return { error: data?.error?.message || provider.name + " returned HTTP " + response.status };
     const answer = data?.choices?.[0]?.message?.content;
-    return typeof answer === "string" && answer.trim()
-      ? { text: answer.trim() }
-      : { error: `${provider} returned an empty response.` };
+    return typeof answer === "string" && answer.trim() ? { text: answer.trim() } : { error: provider.name + " returned an empty response." };
   } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : `${provider} request failed.`,
-    };
+    return { error: error instanceof Error ? error.message : provider.name + " request failed." };
   }
 }
 
-function buildConversation(prompt: string, history: HistoryMessage[]) {
-  const context = history
-    .slice(-10)
-    .map(
-      (message) =>
-        `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
-    )
-    .join("\n\n");
-  return `${context ? `CONVERSATION SO FAR:\n${context}\n\n` : ""}USER'S NEW MESSAGE:\n${prompt}`;
-}
-
-async function callProvider(
-  provider: Provider,
-  input: string,
-): Promise<ChatResult> {
-  if (provider === "groq") {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) return { error: "Missing GROQ_API_KEY" };
-    return askCompatible(
-      "groq",
-      input,
-      key,
-      process.env.GROQ_MODEL || "openai/gpt-oss-20b",
-    );
-  }
-  if (provider === "openrouter") {
-    const key = process.env.OPENROUTER_API_KEY;
-    if (!key) return { error: "Missing OPENROUTER_API_KEY" };
-    return askCompatible(
-      "openrouter",
-      input,
-      key,
-      process.env.OPENROUTER_MODEL || "openrouter/free",
-    );
-  }
-
-  return { error: "Unknown AI provider." };
-}
-
-// Best-effort per-instance protection. For strict global limits, add a shared
-// rate-limit store (for example Upstash Redis) or a WAF rule.
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 function isRateLimited(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() || "unknown";
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const now = Date.now();
   const current = rateBuckets.get(ip);
-  if (!current || current.resetAt <= now) {
-    rateBuckets.set(ip, { count: 1, resetAt: now + 60_000 });
-    return false;
-  }
+  if (!current || current.resetAt <= now) { rateBuckets.set(ip, { count: 1, resetAt: now + 60_000 }); return false; }
   current.count += 1;
   return current.count > 12;
 }
 
-export async function POST(request: Request) {
-  if (isRateLimited(request)) {
-    return NextResponse.json(
-      { error: "Too many messages. Please wait a minute and try again." },
-      { status: 429 },
-    );
-  }
+export async function GET() {
+  return NextResponse.json({
+    models: getProviders().map(({ id, name, model, accent }) => ({ id, name, model, accent: accent || "blue" })),
+  });
+}
 
+export async function POST(request: Request) {
+  if (isRateLimited(request)) return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });
   try {
     const body = await request.json();
-    const prompt =
-      typeof body?.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt) {
-      return NextResponse.json(
-        { error: "Please enter a message." },
-        { status: 400 },
-      );
-    }
-    if (prompt.length > 12000) {
-      return NextResponse.json(
-        { error: "Message is too long (12,000 character limit)." },
-        { status: 400 },
-      );
-    }
+    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return NextResponse.json({ error: "Please enter a message." }, { status: 400 });
+    if (prompt.length > 12000) return NextResponse.json({ error: "Message is too long (12,000 character limit)." }, { status: 400 });
 
-    const validProviders: Provider[] = ["groq", "openrouter"];
-    const requested: Provider[] = Array.isArray(body.enabledProviders)
-      ? body.enabledProviders.filter(
-          (provider: unknown): provider is Provider =>
-            typeof provider === "string" &&
-            validProviders.includes(provider as Provider),
-        )
-      : ["groq"];
-    const providers = [...new Set(requested)];
-    if (providers.length === 0) {
-      return NextResponse.json(
-        { error: "Turn on at least one AI first." },
-        { status: 400 },
-      );
-    }
+    const providers = getProviders();
+    const requestedIds: string[] = Array.isArray(body.enabledProviders)
+      ? body.enabledProviders.filter((id: unknown): id is string => typeof id === "string")
+      : [providers[0]?.id].filter(Boolean) as string[];
+    const selected = providers.filter((provider) => requestedIds.includes(provider.id));
+    if (!selected.length) return NextResponse.json({ error: "Turn on at least one AI first." }, { status: 400 });
 
     const history: HistoryMessage[] = Array.isArray(body.history)
-      ? body.history
-          .slice(-10)
-          .filter(
-            (message: unknown): message is HistoryMessage =>
-              typeof message === "object" &&
-              message !== null &&
-              ((message as HistoryMessage).role === "user" ||
-                (message as HistoryMessage).role === "assistant") &&
-              typeof (message as HistoryMessage).content === "string",
-          )
-          .map((message: HistoryMessage) => ({
-            role: message.role,
-            content: message.content.slice(0, 12000),
-          }))
+      ? body.history.slice(-10).filter((item: unknown): item is HistoryMessage =>
+          !!item && typeof item === "object" &&
+          (((item as HistoryMessage).role === "user") || ((item as HistoryMessage).role === "assistant")) &&
+          typeof (item as HistoryMessage).content === "string"
+        ).map((item: HistoryMessage) => ({ role: item.role, content: item.content.slice(0, 12000) }))
       : [];
 
-    const results = Object.fromEntries(
-      await Promise.all(
-        providers.map(async (provider) => [
-          provider,
-          await callProvider(provider, buildConversation(prompt, history)),
-        ] as const),
-      ),
-    ) as Partial<Record<Provider, ChatResult>>;
+    const messages = conversationMessages(prompt, history);
+    const results = await Promise.all(selected.map(async (provider) => ({
+      provider,
+      result: await askProvider(provider, messages),
+    })));
+    const available = results.filter((item) => item.result.text);
+    const errors = results.filter((item) => item.result.error).map((item) => item.provider.name + ": " + item.result.error);
 
-    const available = providers
-      .map((provider) => results[provider]?.text)
-      .filter((answer): answer is string => Boolean(answer));
-    const errors = providers
-      .map((provider) =>
-        results[provider]?.error
-          ? `${PROVIDER_LABELS[provider]}: ${results[provider]?.error}`
-          : "",
-      )
-      .filter(Boolean);
+    if (!available.length) return NextResponse.json({
+      error: errors.join(" | ") || "The selected AIs couldn't respond. Please try again.",
+    }, { status: 502 });
 
-    if (available.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            errors.join(" | ") ||
-            "The selected AIs couldn't respond. Please try again.",
-        },
-        { status: 502 },
-      );
-    }
-
-    // One bounded synthesis attempt prevents multiple sequential model calls
-    // from exhausting the Vercel function duration.
-    let final = available[0];
+    let final = available[0].result.text!;
     if (available.length > 1) {
-      const synthesisPrompt = [
-        "You are the answer composer in a multi-model assistant. The user should experience you as one helpful AI.",
-        "Compare the independent drafts below. Keep accurate and useful points, remove repetition, resolve contradictions carefully, and produce one natural, complete answer. Do not mention models, providers, or that answers were combined.",
-        "ORIGINAL USER MESSAGE:",
-        prompt,
-        ...available.map(
-          (draft, index) => `DRAFT ${index + 1}:\n${draft}`,
-        ),
-      ].join("\n\n");
-
-      const synthesisOrder: Provider[] = [
-        ...(providers.includes("groq") && results.groq?.text ? ["groq" as const] : []),
-        ...(providers.includes("openrouter") && results.openrouter?.text
-          ? ["openrouter" as const]
-          : []),
+      const drafts = available.map((item, index) => "DRAFT " + (index + 1) + ":\n" + item.result.text).join("\n\n");
+      const synthesisMessages = [
+        { role: "system", content: SYSTEM_PROMPT + " You are also the answer composer. Compare independent drafts, keep accurate and useful points, remove repetition, resolve contradictions carefully, and produce one natural, complete answer. Do not mention models, providers, or that answers were combined." },
+        { role: "user", content: "Original user message:\n" + prompt + "\n\n" + drafts },
       ];
-      const firstSynthesizer = synthesisOrder[0];
-      if (firstSynthesizer) {
-        const synthesis = await callSynthesisProvider(
-          firstSynthesizer,
-          synthesisPrompt,
-        );
-        if (synthesis.text) final = synthesis.text;
-        else errors.push("Synthesis unavailable; showing the best available response.");
-      }
+      const synthesis = await askProvider(available[0].provider, synthesisMessages, 12000);
+      if (synthesis.text) final = synthesis.text;
+      else errors.push("Synthesis unavailable; showing the best available response.");
     }
 
     return NextResponse.json({ final, errors });
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request. Please try again." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Invalid request. Please try again." }, { status: 400 });
   }
-}
-
-async function callSynthesisProvider(
-  provider: Provider,
-  input: string,
-): Promise<ChatResult> {
-  if (provider === "groq") {
-    const key = process.env.GROQ_API_KEY;
-    return key
-      ? askCompatible(
-          "groq",
-          input,
-          key,
-          process.env.GROQ_MODEL || "openai/gpt-oss-20b",
-          12000,
-        )
-      : { error: "Missing GROQ_API_KEY" };
-  }
-  if (provider === "openrouter") {
-    const key = process.env.OPENROUTER_API_KEY;
-    return key
-      ? askCompatible(
-          "openrouter",
-          input,
-          key,
-          process.env.OPENROUTER_MODEL || "openrouter/free",
-          12000,
-        )
-      : { error: "Missing OPENROUTER_API_KEY" };
-  }
-  return { error: "Unknown synthesis provider." };
 }
