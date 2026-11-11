@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, DragEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase";
 
 type Provider = { id: string; name: string; model: string; enabled: boolean; accent: "blue" | "purple" };
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { id?: string; role: "user" | "assistant"; content: string; created_at?: string };
+type Chat = { id: string; title: string; created_at: string; updated_at: string };
 type StoredFile = { name: string; id: string; metadata?: { size?: number; mimetype?: string; lastModified?: string } | null; created_at?: string | null };
 
 const initialModels: Provider[] = [
@@ -18,14 +19,19 @@ function formatBytes(bytes = 0) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
-
 function safeName(name: string) {
   return name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-100) || "file";
+}
+function chatTitle(text: string) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > 42 ? clean.slice(0, 42).trimEnd() + "…" : clean || "New conversation";
 }
 
 export default function Home() {
   const [models, setModels] = useState(initialModels);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +48,8 @@ export default function Home() {
   const [fileError, setFileError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatNotice, setChatNotice] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const supabase = getSupabase();
@@ -67,6 +75,42 @@ export default function Home() {
   }, [supabase]);
 
   useEffect(() => {
+    if (!supabase || !user) { setChats([]); setSelectedChatId(null); setMessages([]); return; }
+    let cancelled = false;
+    (async () => {
+      setChatBusy(true);
+      const { data, error } = await supabase.from("chats").select("id,title,created_at,updated_at").order("updated_at", { ascending: false }).limit(100);
+      if (!cancelled) {
+        if (error) setChatNotice("Couldn't load chat history: " + error.message);
+        else {
+          const rows = (data || []) as Chat[];
+          setChats(rows);
+          if (rows.length) {
+            setSelectedChatId((current) => current && rows.some((chat) => chat.id === current) ? current : rows[0].id);
+          } else {
+            setSelectedChatId(null);
+            setMessages([]);
+          }
+        }
+        setChatBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, user?.id]);
+
+  useEffect(() => {
+    if (!supabase || !user || !selectedChatId) { setMessages([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("chat_messages").select("id,role,content,created_at").eq("chat_id", selectedChatId).order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) setError("Couldn't open this conversation: " + error.message);
+      else setMessages((data || []) as Message[]);
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, user?.id, selectedChatId]);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
@@ -78,44 +122,94 @@ export default function Home() {
     setModels((current) => current.map((model) => model.id === id ? { ...model, enabled: !model.enabled } : model));
   }
 
-  function newChat() {
+  async function createChat() {
+    if (!supabase || !user || chatBusy) return;
+    setChatBusy(true); setError(""); setChatNotice("");
+    const { data, error } = await supabase.from("chats").insert({ user_id: user.id, title: "New conversation" }).select("id,title,created_at,updated_at").single();
+    if (error || !data) { setError("Couldn't create a conversation: " + (error?.message || "Unknown error")); setChatBusy(false); return; }
+    setChats((current) => [data as Chat, ...current]);
+    setSelectedChatId(data.id);
     setMessages([]);
     setPrompt("");
-    setError("");
     setActiveTab("chat");
     setMobileOpen(false);
+    setChatBusy(false);
+  }
+
+  async function openChat(chatId: string) {
+    if (chatId === selectedChatId) { setActiveTab("chat"); setMobileOpen(false); return; }
+    setSelectedChatId(chatId);
+    setActiveTab("chat");
+    setError("");
+    setPrompt("");
+    setMobileOpen(false);
+  }
+
+  async function deleteChat(chatId: string) {
+    if (!supabase || !user) return;
+    const target = chats.find((chat) => chat.id === chatId);
+    if (!window.confirm('Delete "' + (target?.title || "this conversation") + '" and all its messages permanently?')) return;
+    const { error } = await supabase.from("chats").delete().eq("id", chatId).eq("user_id", user.id);
+    if (error) { setError("Couldn't delete conversation: " + error.message); return; }
+    const remaining = chats.filter((chat) => chat.id !== chatId);
+    setChats(remaining);
+    if (selectedChatId === chatId) {
+      setSelectedChatId(remaining[0]?.id || null);
+      setMessages([]);
+    }
   }
 
   async function submit(e?: FormEvent) {
     e?.preventDefault();
     const text = prompt.trim();
     if (!text || loading) return;
+    if (!supabase || !user) { setError("Sign in to save your conversations."); return; }
     if (activeModels.length === 0) { setError("Turn on at least one AI to start chatting."); return; }
-    const history = messages.slice(-10);
-    setMessages((current) => [...current, { role: "user", content: text }]);
-    setPrompt("");
-    setError("");
-    setLoading(true);
+    setError(""); setChatNotice(""); setLoading(true); setPrompt("");
+    let chatId = selectedChatId;
+    let isNew = false;
     try {
+      if (!chatId) {
+        const { data, error } = await supabase.from("chats").insert({ user_id: user.id, title: chatTitle(text) }).select("id,title,created_at,updated_at").single();
+        if (error || !data) throw new Error("Couldn't create a conversation: " + (error?.message || "Unknown error"));
+        chatId = data.id; isNew = true;
+        setSelectedChatId(chatId);
+        setChats((current) => [data as Chat, ...current]);
+      }
+      const previousHistory = messages.map(({ role, content }) => ({ role, content })).slice(-10);
+      const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: text });
+      if (saveUserError) throw new Error("Couldn't save your message: " + saveUserError.message);
+      setMessages((current) => [...current, { role: "user", content: text }]);
+      if (isNew) {
+        const { error: titleError } = await supabase.from("chats").update({ title: chatTitle(text), updated_at: new Date().toISOString() }).eq("id", chatId).eq("user_id", user.id);
+        if (titleError) setChatNotice("Message saved, but the chat title couldn't be updated.");
+      }
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, history, enabledProviders: activeModels.map((model) => model.id) }),
+        body: JSON.stringify({ prompt: text, history: previousHistory, enabledProviders: activeModels.map((model) => model.id) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Couldn't get a response. Please try again.");
-      setMessages((current) => [...current, { role: "assistant", content: data.final || "I couldn't form a response. Please try again." }]);
+      const answer = data.final || "I couldn't form a response. Please try again.";
+      const { error: saveAssistantError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "assistant", content: answer });
+      if (saveAssistantError) throw new Error("AI answered, but saving its reply failed: " + saveAssistantError.message);
+      setMessages((current) => [...current, { role: "assistant", content: answer }]);
+      setChats((current) => current.map((chat) => chat.id === chatId ? { ...chat, title: isNew ? chatTitle(text) : chat.title, updated_at: new Date().toISOString() } : chat).sort((a,b) => b.updated_at.localeCompare(a.updated_at)));
       if (data.errors?.length) setError(data.errors.join(" · "));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally { setLoading(false); }
   }
 
+  function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); }
+  }
+
   async function sendMagicLink(e: FormEvent) {
     e.preventDefault();
     if (!supabase || !email.trim()) return;
-    setAuthBusy(true);
-    setAuthMessage("");
+    setAuthBusy(true); setAuthMessage("");
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
@@ -127,16 +221,13 @@ export default function Home() {
   async function signOut() {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setFiles([]);
+    setFiles([]); setChats([]); setMessages([]); setSelectedChatId(null);
   }
 
   async function loadFiles() {
     if (!supabase || !user) return;
-    setFilesLoading(true);
-    setFileError("");
-    const { data, error } = await supabase.storage.from("user-files").list(user.id, {
-      limit: 100, sortBy: { column: "created_at", order: "desc" },
-    });
+    setFilesLoading(true); setFileError("");
+    const { data, error } = await supabase.storage.from("user-files").list(user.id, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
     if (error) setFileError(error.message);
     else setFiles((data || []).filter((item) => item.id).map((item) => ({ ...item, id: item.id!, name: item.name })));
     setFilesLoading(false);
@@ -146,22 +237,14 @@ export default function Home() {
     if (!supabase || !user || uploading) return;
     const queue = Array.from(selected);
     if (!queue.length) return;
-    setFileError("");
-    setUploading(true);
-    setUploadProgress(0);
+    setFileError(""); setUploading(true); setUploadProgress(0);
     let completed = 0;
     for (const file of queue) {
-      if (file.size > 50 * 1024 * 1024) {
-        setFileError(file.name + " is larger than the 50 MB limit.");
-        continue;
-      }
+      if (file.size > 50 * 1024 * 1024) { setFileError(file.name + " is larger than the 50 MB limit."); completed++; setUploadProgress(Math.round((completed / queue.length) * 100)); continue; }
       const path = user.id + "/" + crypto.randomUUID() + "-" + safeName(file.name);
-      const { error } = await supabase.storage.from("user-files").upload(path, file, {
-        upsert: false, contentType: file.type || "application/octet-stream",
-      });
+      const { error } = await supabase.storage.from("user-files").upload(path, file, { upsert: false, contentType: file.type || "application/octet-stream" });
       if (error) setFileError((current) => current ? current + " · " + error.message : error.message);
-      completed += 1;
-      setUploadProgress(Math.round((completed / queue.length) * 100));
+      completed++; setUploadProgress(Math.round((completed / queue.length) * 100));
     }
     setUploading(false);
     await loadFiles();
@@ -169,7 +252,7 @@ export default function Home() {
   }
 
   async function deleteFile(name: string) {
-    if (!supabase || !user) return;
+    if (!supabase || !user || !window.confirm("Delete this file permanently from Supabase Storage?")) return;
     const { error } = await supabase.storage.from("user-files").remove([user.id + "/" + name]);
     if (error) setFileError(error.message);
     else setFiles((current) => current.filter((file) => file.name !== name));
@@ -180,8 +263,7 @@ export default function Home() {
     const { data, error } = await supabase.storage.from("user-files").download(user.id + "/" + name);
     if (error) { setFileError(error.message); return; }
     const url = URL.createObjectURL(data);
-    const link = document.createElement("a");
-    link.href = url; link.download = name; link.click();
+    const link = document.createElement("a"); link.href = url; link.download = name; link.click();
     URL.revokeObjectURL(url);
   }
 
@@ -197,27 +279,43 @@ export default function Home() {
     if (e.dataTransfer.files.length) void uploadFiles(e.dataTransfer.files);
   }
 
+  if (!authReady) return <main className="auth-screen"><div className="auth-card"><div className="auth-icon">✳</div><h2>Opening your private workspace</h2><p>Checking your secure sign-in session…</p></div></main>;
+  if (!supabase) return <main className="auth-screen"><div className="auth-card"><div className="auth-icon">!</div><h2>Supabase isn't configured</h2><p>Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to the Vercel project environment.</p></div></main>;
+  if (!user) return (
+    <main className="auth-screen">
+      <div className="auth-card">
+        <a className="brand auth-brand" href="#"><span className="brand-symbol"><i/><i/><i/><i/></span><span>AI <b>Duo</b></span></a>
+        <div className="auth-icon">⌑</div><h2>Your private AI workspace</h2>
+        <p>Sign in with your email to keep chat history and files synced securely across visits and devices.</p>
+        <form onSubmit={sendMagicLink}><label htmlFor="email">EMAIL ADDRESS</label><input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /><button disabled={authBusy}>{authBusy ? "Sending secure link…" : "Send sign-in link →"}</button></form>
+        {authMessage && <div className={authMessage.startsWith("Check") ? "auth-success" : "auth-error"}>{authMessage}</div>}
+        <small>Only your signed-in account can access your conversations and uploaded files.</small>
+      </div>
+    </main>
+  );
+
   return (
     <main className="app-shell">
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
-          <a className="brand" href="#" onClick={(e) => { e.preventDefault(); newChat(); }}>
-            <span className="brand-symbol"><i /><i /><i /><i /></span><span>AI <b>Duo</b></span>
-          </a>
+          <a className="brand" href="#" onClick={(e) => { e.preventDefault(); void createChat(); }}><span className="brand-symbol"><i /><i /><i /><i /></span><span>AI <b>Duo</b></span></a>
           <button className="mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close sidebar">×</button>
         </div>
-        <button className="new-chat" onClick={newChat}><span>＋</span> New conversation <kbd>⌘ K</kbd></button>
-
+        <button className="new-chat" onClick={() => void createChat()} disabled={chatBusy}><span>＋</span> New conversation <kbd>⌘ K</kbd></button>
         <div className="nav-label">WORKSPACE</div>
         <nav className="side-nav">
-          <button className={activeTab === "chat" ? "nav-item selected" : "nav-item"} onClick={() => { setActiveTab("chat"); setMobileOpen(false); }}>
-            <span className="nav-icon">▤</span> Chat <span className="nav-arrow">›</span>
-          </button>
-          <button className={activeTab === "files" ? "nav-item selected" : "nav-item"} onClick={() => { setActiveTab("files"); setMobileOpen(false); }}>
-            <span className="nav-icon">▧</span> My files <span className="nav-count">{files.length}</span>
-          </button>
+          <button className={activeTab === "chat" ? "nav-item selected" : "nav-item"} onClick={() => { setActiveTab("chat"); setMobileOpen(false); }}><span className="nav-icon">▤</span> Chat <span className="nav-arrow">›</span></button>
+          <button className={activeTab === "files" ? "nav-item selected" : "nav-item"} onClick={() => { setActiveTab("files"); setMobileOpen(false); }}><span className="nav-icon">▧</span> My files <span className="nav-count">{files.length}</span></button>
         </nav>
-
+        <div className="nav-label history-label">CHAT HISTORY <span>{chats.length}</span></div>
+        <div className="chat-history">
+          {chatBusy && chats.length === 0 ? <div className="history-empty">Loading conversations…</div> : chats.length === 0 ? <div className="history-empty">Your saved chats will appear here.</div> : chats.map((chat) => (
+            <div className={`history-item ${selectedChatId === chat.id && activeTab === "chat" ? "history-active" : ""}`} key={chat.id}>
+              <button className="history-open" onClick={() => void openChat(chat.id)} title={chat.title}><span>◷</span><b>{chat.title}</b></button>
+              <button className="history-delete" onClick={() => void deleteChat(chat.id)} title="Delete conversation" aria-label={`Delete ${chat.title}`}>×</button>
+            </div>
+          ))}
+        </div>
         <div className="nav-label team-label">YOUR AI TEAM <span>{activeModels.length}/{models.length} ON</span></div>
         <div className="model-list">
           {models.map((model) => (
@@ -230,51 +328,37 @@ export default function Home() {
         </div>
         <div className="team-note">Switch models on or off anytime. Your selected AIs collaborate on one answer.</div>
         <div className="sidebar-spacer" />
-        <div className="model-registry"><span className="registry-icon">＋</span><div><b>Model registry</b><small>Ready for more AI providers</small></div><span className="registry-status">EXTENDABLE</span></div>
-        <div className="sidebar-footer"><span className="footer-avatar">H</span><div><b>BFHades</b><small>Workspace owner</small></div><span className="footer-dots">···</span></div>
+        <div className="model-registry"><span className="registry-icon">＋</span><div><b>Model registry</b><small>More providers can be configured securely</small></div><span className="registry-status">EXTENDABLE</span></div>
+        <div className="sidebar-footer"><span className="footer-avatar">H</span><div><b>{user.email || "BFHades"}</b><small>Private workspace</small></div><button className="footer-signout" onClick={() => void signOut()}>Sign out</button></div>
       </aside>
-
       {mobileOpen && <button className="scrim" onClick={() => setMobileOpen(false)} aria-label="Close menu" />}
-
       <section className="main-panel">
         <header className="topbar">
-          <div className="topbar-left">
-            <button className="menu-button" onClick={() => setMobileOpen(true)} aria-label="Open menu">☰</button>
-            <div className="breadcrumb">Workspace <span>/</span> <b>{activeTab === "chat" ? "Chat" : "My files"}</b></div>
-          </div>
-          <div className="topbar-right">
-            <span className="secure-pill"><i /> Private workspace</span>
-            {user ? <button className="account-chip" onClick={signOut}><span>{(user.email || "U").slice(0,1).toUpperCase()}</span><b>{user.email || "Signed in"}</b><small>Sign out</small></button> : <span className="guest-chip">Guest session</span>}
-          </div>
+          <div className="topbar-left"><button className="menu-button" onClick={() => setMobileOpen(true)} aria-label="Open menu">☰</button><div className="breadcrumb">Workspace <span>/</span> <b>{activeTab === "chat" ? "Chat" : "My files"}</b></div></div>
+          <div className="topbar-right"><span className="secure-pill"><i /> Private workspace</span><button className="account-chip" onClick={() => void signOut()}><span>{(user.email || "U").slice(0,1).toUpperCase()}</span><b>{user.email || "Signed in"}</b><small>Sign out</small></button></div>
         </header>
 
         {activeTab === "chat" ? (
           <>
             <div className={`conversation ${messages.length === 0 ? "conversation-empty" : ""}`}>
+              {chatNotice && <div className="inline-error">{chatNotice}</div>}
               {messages.length === 0 ? (
                 <div className="welcome">
                   <div className="welcome-eyebrow"><span className="eyebrow-line" /> THE AI WORKSPACE <span className="eyebrow-line" /></div>
                   <div className="welcome-orb"><span>✳</span><i /><b /></div>
                   <h1>Think beyond<br /><em>one perspective.</em></h1>
-                  <p>One message, two powerful AI minds. Ask your question and let your AI team shape one clear, considered answer.</p>
-                  <div className="welcome-models">
-                    <span className="welcome-model blue-dot">Astra Core</span><span className="plus-dot">+</span><span className="welcome-model purple-dot">Nova Reasoner</span>
-                  </div>
+                  <p>{selectedChatId ? "Continue this saved conversation by sending a message below." : "Your conversations are saved automatically. Start a new chat and return to it anytime."}</p>
+                  <div className="welcome-models"><span className="welcome-model blue-dot">Astra Core</span><span className="plus-dot">+</span><span className="welcome-model purple-dot">Nova Reasoner</span></div>
                   <div className="suggestions">
-                    {["Explain a difficult concept", "Help me plan a project", "Review an idea and find gaps"].map((item, i) => (
-                      <button key={item} onClick={() => setPrompt(item)}><span className="suggestion-icon">{["✧","⌘","◈"][i]}</span><span>{item}</span><b>↗</b></button>
-                    ))}
+                    {["Explain a difficult concept", "Help me plan a project", "Review an idea and find gaps"].map((item, i) => <button key={item} onClick={() => setPrompt(item)}><span className="suggestion-icon">{["✧","⌘","◈"][i]}</span><span>{item}</span><b>↗</b></button>)}
                   </div>
                 </div>
               ) : (
                 <div className="message-list">
                   {messages.map((message, index) => (
-                    <article className={`message message-${message.role}`} key={index}>
+                    <article className={`message message-${message.role}`} key={message.id || index}>
                       {message.role === "assistant" && <div className="assistant-avatar">✳</div>}
-                      <div className="message-content">
-                        {message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}
-                        <div className="message-text">{message.content}</div>
-                      </div>
+                      <div className="message-content">{message.role === "assistant" && <div className="message-author">AI DUO <span>·</span> UNIFIED RESPONSE</div>}<div className="message-text">{message.content}</div></div>
                     </article>
                   ))}
                   {loading && <div className="thinking-row"><div className="assistant-avatar">✳</div><div><div className="message-author">AI DUO IS THINKING</div><div className="thinking-dots"><i /><i /><i /><span>Combining perspectives…</span></div></div></div>}
@@ -285,11 +369,8 @@ export default function Home() {
             <div className="composer-wrap">
               {error && <div className="inline-error">{error}</div>}
               <form className="chat-composer" onSubmit={submit}>
-                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ask your AI team anything…" rows={1} maxLength={12000} disabled={loading} aria-label="Write your message" />
-                <div className="composer-bottom">
-                  <div className="composer-hints"><span className="hint-pill">✧ {activeModels.length} models active</span><span>Enter to send · Shift + Enter for a new line</span></div>
-                  <button type="submit" disabled={loading || !prompt.trim() || activeModels.length === 0} aria-label="Send message">{loading ? <span className="send-spinner" /> : "↑"}</button>
-                </div>
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={onComposerKeyDown} placeholder="Ask your AI team anything…" rows={1} maxLength={12000} disabled={loading} aria-label="Write your message" />
+                <div className="composer-bottom"><div className="composer-hints"><span className="hint-pill">✧ {activeModels.length} models active</span><span>Enter to send · Shift + Enter for a new line</span></div><button type="submit" disabled={loading || !prompt.trim() || activeModels.length === 0} aria-label="Send message">{loading ? <span className="send-spinner" /> : "↑"}</button></div>
               </form>
               <div className="disclaimer">AI can make mistakes. Verify important information before relying on it.</div>
             </div>
@@ -297,42 +378,16 @@ export default function Home() {
         ) : (
           <div className="files-page">
             <div className="files-heading"><div><div className="page-eyebrow">YOUR PERSONAL LIBRARY</div><h1>My files</h1><p>Keep your documents and resources in one private place.</p></div><span className="storage-badge"><i /> SUPABASE STORAGE</span></div>
-            {!supabase ? <div className="notice-card">Supabase is not configured. Add the project URL and publishable key to your environment variables.</div> :
-             !authReady ? <div className="notice-card">Loading secure file workspace…</div> :
-             !user ? (
-              <div className="auth-card">
-                <div className="auth-icon">⌑</div><h2>Sign in to your file space</h2><p>Your files are private. Sign in with an email link to upload, preview, download and manage your files securely.</p>
-                <form onSubmit={sendMagicLink}><label htmlFor="email">EMAIL ADDRESS</label><input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /><button disabled={authBusy}>{authBusy ? "Sending link…" : "Send secure sign-in link →"}</button></form>
-                {authMessage && <div className={authMessage.startsWith("Check") ? "auth-success" : "auth-error"}>{authMessage}</div>}
-                <small>Files are stored in a private bucket and protected by per-user access rules.</small>
-              </div>
-             ) : (
-              <>
-                <div className={`dropzone ${dragging ? "dropzone-active" : ""} ${uploading ? "dropzone-uploading" : ""}`}
-                  onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                  onDragLeave={() => setDragging(false)}
-                  onDrop={onDrop}
-                  onClick={() => !uploading && fileInput.current?.click()}>
-                  <input ref={fileInput} type="file" multiple hidden onChange={(e) => e.target.files && void uploadFiles(e.target.files)} />
-                  <div className="upload-symbol">⇧</div><h2>{uploading ? "Uploading your files…" : "Drop files here to upload"}</h2>
-                  <p>or <button type="button" onClick={(e) => { e.stopPropagation(); fileInput.current?.click(); }}>browse from your device</button></p>
-                  <small>Any file type · Up to 50 MB per file</small>
-                  {uploading && <div className="progress-track"><i style={{ width: uploadProgress + "%" }} /></div>}
-                </div>
-                {fileError && <div className="inline-error file-error">{fileError}</div>}
-                <div className="files-list-header"><div><h2>Uploaded files</h2><span>{files.length} items · private to your account</span></div><button onClick={() => void loadFiles()}>↻ Refresh</button></div>
-                <div className="file-list">
-                  {filesLoading ? <div className="file-empty">Loading files…</div> : files.length === 0 ? <div className="file-empty"><span>▧</span><b>No files yet</b><small>Files you upload will appear here.</small></div> :
-                    files.map((file) => (
-                      <div className="file-row" key={file.id}>
-                        <div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div>
-                        <div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"}</small></div>
-                        <div className="file-actions"><button onClick={() => void previewFile(file.name)} title="Preview">↗</button><button onClick={() => void downloadFile(file.name)} title="Download">↓</button><button className="delete-action" onClick={() => void deleteFile(file.name)} title="Delete">×</button></div>
-                      </div>
-                    ))}
-                </div>
-              </>
-             )}
+            <div className={`dropzone ${dragging ? "dropzone-active" : ""} ${uploading ? "dropzone-uploading" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop} onClick={() => !uploading && fileInput.current?.click()}>
+              <input ref={fileInput} type="file" multiple hidden onChange={(e) => e.target.files && void uploadFiles(e.target.files)} />
+              <div className="upload-symbol">⇧</div><h2>{uploading ? "Uploading your files…" : "Drop files here to upload"}</h2><p>or <button type="button" onClick={(e) => { e.stopPropagation(); fileInput.current?.click(); }}>browse from your device</button></p><small>Any file type · Up to 50 MB per file</small>
+              {uploading && <div className="progress-track"><i style={{ width: uploadProgress + "%" }} /></div>}
+            </div>
+            {fileError && <div className="inline-error file-error">{fileError}</div>}
+            <div className="files-list-header"><div><h2>Uploaded files</h2><span>{files.length} items · private to your account</span></div><button onClick={() => void loadFiles()}>↻ Refresh</button></div>
+            <div className="file-list">{filesLoading ? <div className="file-empty">Loading files…</div> : files.length === 0 ? <div className="file-empty"><span>▧</span><b>No files yet</b><small>Files you upload will appear here.</small></div> : files.map((file) => (
+              <div className="file-row" key={file.id}><div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div><div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"}</small></div><div className="file-actions"><button onClick={() => void previewFile(file.name)} title="Preview">↗</button><button onClick={() => void downloadFile(file.name)} title="Download">↓</button><button className="delete-action" onClick={() => void deleteFile(file.name)} title="Delete">×</button></div></div>
+            ))}</div>
           </div>
         )}
       </section>
