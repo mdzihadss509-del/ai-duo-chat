@@ -48,6 +48,12 @@ export default function Home() {
   const activeModels = models.filter((model) => model.enabled);
 
   useEffect(() => {
+    fetch("/api/chat").then((response) => response.json()).then((data) => {
+      if (Array.isArray(data.models) && data.models.length) setModels(data.models.map((model: Provider) => ({ ...model, enabled: true })));
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     if (!supabase) { setAuthReady(true); return; }
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
