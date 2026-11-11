@@ -31,19 +31,36 @@ async function askGroq(prompt: string, key: string, model: string): Promise<Chat
 
 async function askGemini(prompt: string, key: string, model: string): Promise<ChatResult> {
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+        "Api-Revision": "2026-05-20"
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: "You are a thoughtful, accurate assistant. Answer clearly and state uncertainty rather than inventing facts." }] },
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7 }
+        model,
+        input: [
+          "You are a thoughtful, accurate assistant. Answer clearly and state uncertainty rather than inventing facts.",
+          "",
+          prompt
+        ].join("\\n")
       }),
       signal: AbortSignal.timeout(45000)
     });
     const data = await response.json();
     if (!response.ok) return { error: data?.error?.message || `Gemini returned HTTP ${response.status}` };
-    const text = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("").trim();
+
+    const outputText = typeof data?.output_text === "string" ? data.output_text : "";
+    const stepText = Array.isArray(data?.steps)
+      ? data.steps
+          .filter((step: { type?: string }) => step.type === "model_output")
+          .flatMap((step: { content?: Array<{ type?: string; text?: string }> }) => step.content || [])
+          .filter((part: { type?: string }) => part.type === "text")
+          .map((part: { text?: string }) => part.text || "")
+          .join("")
+      : "";
+    const text = (outputText || stepText).trim();
     return text ? { text } : { error: "Gemini returned an empty response." };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Gemini request failed." };
@@ -64,7 +81,7 @@ export async function POST(request: Request) {
     }
 
     const [gemini, groq] = await Promise.all([
-      askGemini(prompt, geminiKey, process.env.GEMINI_MODEL || "gemini-2.5-flash"),
+      askGemini(prompt, geminiKey, process.env.GEMINI_MODEL || "gemini-3.8-flash"),
       askGroq(prompt, groqKey, process.env.GROQ_MODEL || "openai/gpt-oss-20b")
     ]);
 
@@ -84,7 +101,7 @@ export async function POST(request: Request) {
     ].join("\n\n");
 
     const synthesis = gemini.text
-      ? await askGemini(synthesizerPrompt, geminiKey, process.env.GEMINI_MODEL || "gemini-2.5-flash")
+      ? await askGemini(synthesizerPrompt, geminiKey, process.env.GEMINI_MODEL || "gemini-3.8-flash")
       : await askGroq(synthesizerPrompt, groqKey, process.env.GROQ_MODEL || "openai/gpt-oss-20b");
 
     let final = synthesis.text || [gemini.text, groq.text].filter(Boolean).join("\n\n---\n\n");
