@@ -85,7 +85,6 @@ async function askCloudflareFallback(
           temperature: 0.5,
           max_tokens: 2048,
         }),
-        signal: AbortSignal.timeout(timeout),
       },
     );
     const data = await response.json().catch(() => null);
@@ -127,7 +126,6 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
         } : {}),
       },
       body: JSON.stringify({ model: provider.model, messages, temperature: 0.5 }),
-      signal: AbortSignal.timeout(timeout),
     });
     const data = await response.json().catch(() => null);
     if (!response.ok) {
