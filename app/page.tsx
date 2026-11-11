@@ -111,7 +111,7 @@ export default function Home() {
         </div>
 
         <div className="sidebar-bottom">
-          <div className="connection"><i /> API connection ready</div>
+          <div className="connection"><i /> Server-side AI keys · Private</div>
           <div className="sidebar-foot">AI DUO <span>PRIVATE · SERVER-SIDE KEYS</span></div>
         </div>
       </aside>
