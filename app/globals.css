@@ -73,3 +73,102 @@
 .auth-switch{margin:19px 0 14px;text-align:center;color:#8b95a9;font-size:10px}
 .auth-card-pro>small{display:block;padding-top:13px;border-top:1px solid #edf0f6;text-align:center;color:#a1aabd;font-size:9px;line-height:1.6}
 @media(max-width:500px){.auth-card-pro{padding:28px 22px;border-radius:19px}.auth-socials{grid-template-columns:1fr}.auth-card-pro h2{font-size:23px}}
+
+
+/* AI Duo professional blue / violet dashboard refresh */
+:root{color-scheme:light}
+body{background:#f6f8ff;color:#1f2b48}
+.app-shell{background:#f7f9ff}
+.sidebar{background:linear-gradient(180deg,#111d3c 0%,#17264d 52%,#201d50 100%);border-right:1px solid #263663;color:#dce5ff}
+.brand{color:#f7f9ff}
+.brand-symbol{background:linear-gradient(135deg,#3988ff,#8256f2);box-shadow:0 7px 22px #456df066}
+.brand-symbol i{background:#fff}
+.nav-label{color:#879bcf}
+.new-chat{background:linear-gradient(105deg,#347ff0,#7559e8);border:1px solid #7c9bff;color:#fff;box-shadow:0 8px 20px #315fe84a}
+.new-chat:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px)}
+.side-nav .nav-item{color:#c0cbed}
+.side-nav .nav-item:hover,.side-nav .nav-item.selected{background:linear-gradient(100deg,#2a4e91,#443b88);color:#fff;border-color:#4b69b2}
+.nav-icon,.nav-arrow{color:#93b5ff}
+.model-card{border-color:#354575;background:#1b2a53}
+.model-card.model-on{background:linear-gradient(110deg,#203d70,#302b69);border-color:#516fbd}
+.model-meta strong{color:#f0f4ff}
+.model-meta small{color:#9eafd9}
+.model-icon.blue{background:#193d73;color:#76b4ff}
+.model-icon.purple{background:#3d2b72;color:#c3a4ff}
+.switch-on{background:linear-gradient(90deg,#388bfa,#8b5cf6)}
+.team-note{color:#9caed8}
+.model-registry{background:#1b2b54;border-color:#394b7e}
+.model-registry b{color:#dce6ff}
+.model-registry small{color:#9cadd6}
+.registry-status{color:#a9b9ff}
+.sidebar-footer{border-color:#354575}
+.sidebar-footer b{color:#f1f4ff}
+.sidebar-footer small{color:#9cadd6}
+.footer-avatar{background:linear-gradient(135deg,#3989fa,#8659ed);color:#fff}
+.footer-signout{border-color:#52669a;background:#263866;color:#d9e3ff}
+.footer-signout:hover{border-color:#8ca8f8;background:#344b83;color:#fff}
+.main-panel{background:#f8faff}
+.topbar{background:rgba(255,255,255,.94);border-bottom:1px solid #e3e9f7;box-shadow:0 3px 14px #263b7010}
+.breadcrumb{color:#7d8baa}
+.breadcrumb b{color:#34466d}
+.secure-pill{border-color:#dbe6ff;background:#f2f6ff;color:#4b6eaf}
+.secure-pill i{background:#3789ff;box-shadow:0 0 0 3px #dceaff}
+.account-chip{border:1px solid #e0e7f5;border-radius:11px;background:#fff;padding:6px 10px;box-shadow:0 3px 10px #2f4a8010}
+.account-chip:hover{border-color:#aebff2;background:#f8faff}
+.account-chip>span{background:linear-gradient(135deg,#347ff0,#8058e9);color:#fff}
+.account-chip b{color:#34466c}
+.account-chip small{color:#6d79bb;font-weight:750}
+.welcome-orb{background:radial-gradient(circle at 30% 25%,#72b7ff,#4777ef 48%,#8058e9 82%);box-shadow:0 12px 42px #527cf04d}
+.welcome h1{color:#1e2c50}
+.welcome h1 em{background:linear-gradient(100deg,#287eea,#7655e8);background-clip:text;-webkit-background-clip:text;color:transparent}
+.welcome-eyebrow{color:#6480c8}
+.welcome-model.blue-dot:before{background:#368cf8}
+.welcome-model.purple-dot:before{background:#8959ed}
+.suggestions button{border-color:#e1e8f8;background:#fff;box-shadow:0 4px 15px #35518d0a}
+.suggestions button:hover{border-color:#b7c9fb;background:#f4f7ff;box-shadow:0 8px 22px #4c70bd17}
+.suggestion-icon{background:#edf4ff;color:#397fe8}
+.message-user .message-content{border-color:#d9e4ff;background:linear-gradient(120deg,#edf5ff,#f2efff)}
+.message-author{color:#625dd2}
+.assistant-avatar{border-color:#d5e3ff;background:linear-gradient(145deg,#e8f3ff,#eee8ff);color:#685ee0}
+.chat-composer{border-color:#dce5f8;box-shadow:0 10px 32px #344d8312}
+.chat-composer:focus-within{border-color:#8fb3ff;box-shadow:0 0 0 3px #e9f0ff,0 12px 34px #3e6dd21c}
+.composer-bottom>button{background:linear-gradient(135deg,#287ff0,#8055e8);box-shadow:0 5px 14px #4e72dc55}
+.attach-button:hover,.message-tools button:hover{border-color:#a9c2ff;background:#f2f6ff;color:#356fdb}
+.message-tools .run-html,.file-actions .run-html{border-color:#cfc4ff;background:linear-gradient(110deg,#f0edff,#e9f3ff);color:#6948d2}
+.files-page{max-width:1080px}
+.files-heading h1{color:#1e2c50}
+.page-eyebrow{color:#6759d5}
+.storage-badge{border-color:#d9e4fb;background:#f2f6ff;color:#5275bd}
+.dropzone{border-color:#a9c4fb;background:linear-gradient(130deg,#eaf3ff 0%,#f0edff 100%)}
+.dropzone:hover,.dropzone-active{border-color:#6b99f4;background:linear-gradient(130deg,#e1efff,#ebe4ff)}
+.upload-symbol{border-color:#d5e4ff;background:linear-gradient(135deg,#fff,#f2efff);color:#397eea}
+.dropzone h2{color:#30466e}
+.dropzone p button{color:#5c55d8}
+.progress-track i{background:linear-gradient(90deg,#287ff0,#8255e9)}
+.files-list-header h2{color:#2a3a61}
+.files-list-header>button{border-color:#dce5f5;color:#5875b9}
+.files-list-header>button:hover{border-color:#a8bdfa;background:#f3f6ff;color:#3e68c4}
+.file-list{border-color:#e0e7f5;box-shadow:0 8px 25px #344d8309}
+.file-row:hover{background:#f8faff}
+.file-type{background:linear-gradient(135deg,#e8f2ff,#eeeaff);color:#5864cb}
+.file-meta b{color:#34466a}
+.file-meta small{color:#8492ae}
+.file-actions button{border-color:#e2e8f5;color:#6379b0}
+.file-actions button:hover{border-color:#a9c1fa;background:#f1f6ff;color:#326fd5}
+.file-actions .delete-action:hover{border-color:#f0caca;background:#fff4f4;color:#c85e72}
+.auth-screen{background:radial-gradient(ellipse at 12% 8%,#dcecff 0,transparent 43%),radial-gradient(ellipse at 92% 92%,#e8ddff 0,transparent 46%),#f7f9ff}
+.auth-card-pro{border-color:#dfe6f7;box-shadow:0 28px 90px #304d8b20}
+.auth-card-pro .auth-icon{background:linear-gradient(135deg,#ddecff,#e8ddff);color:#4c64d9}
+.auth-card-pro h2{color:#1d2e55}
+.auth-socials button{border-color:#dce5f5;color:#33466e}
+.auth-socials button:hover{border-color:#9eb9f7;background:#f4f8ff}
+.auth-card-pro form>input:focus,.password-field:focus-within{border-color:#7ea6f6;box-shadow:0 0 0 3px #e4edff}
+.auth-submit{background:linear-gradient(105deg,#287ff0 0%,#5869e9 52%,#8655e8 100%);box-shadow:0 9px 22px #566cda40}
+.auth-submit:hover{filter:brightness(1.07);box-shadow:0 12px 25px #566cda55}
+.text-action,.auth-switch button{color:#625bd4}
+.remember-option input{accent-color:#5d65e8}
+.preview-drawer{border-color:#dbe5f7;box-shadow:-18px 0 48px #243e751c}
+.preview-head{border-color:#e4eaf6;background:linear-gradient(90deg,#f8fbff,#faf7ff)}
+.preview-head b{color:#263b65}
+.preview-head button:hover{border-color:#a8bdfa;background:#f2f6ff;color:#3b6ed1}
+@media(max-width:760px){.sidebar{background:linear-gradient(180deg,#111d3c,#211d50)}}
