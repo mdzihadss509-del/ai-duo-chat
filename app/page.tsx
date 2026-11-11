@@ -207,7 +207,7 @@ export default function Home() {
         uploaded.push({ name: item.file.name, path, type: item.file.type, url: signed?.signedUrl });
       }
       const userText = text || "Please inspect the attached image(s).";
-      const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: userText, attachments: uploaded });
+      const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: userText, attachments: uploaded.map(({ name, path, type }) => ({ name, path, type })) });
       if (saveUserError) throw new Error("Unable to save your message: " + saveUserError.message);
       setMessages((current) => [...current, { role: "user", content: userText, attachments: uploaded }]);
       const previousHistory = messages.map(({ role, content }) => ({ role, content })).slice(-10);
