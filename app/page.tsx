@@ -23,7 +23,7 @@ function formatBytes(bytes = 0) {
 function safeName(name: string) {
   return name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-100) || "file";
 }
-function extractArtifact(content: string) { const match = content.match(/\x60\x60\x60([a-zA-Z0-9_-]*)\\s*\\n([\\s\\S]*?)\x60\x60\x60/); if (!match) return null; const lang = (match[1] || "txt").toLowerCase(); const ext = ({ javascript:"js",js:"js",typescript:"ts",ts:"ts",tsx:"tsx",jsx:"jsx",html:"html",css:"css",json:"json",python:"py",py:"py",sql:"sql",markdown:"md",md:"md",xml:"xml",svg:"svg",sh:"sh",bash:"sh" } as Record<string,string>)[lang] || "txt"; return { code: match[2], ext, lang }; }
+function extractArtifact(content: string) { const match = content.match(/\x60\x60\x60([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)\x60\x60\x60/); if (!match) return null; const lang = (match[1] || "txt").toLowerCase(); const ext = ({ javascript:"js",js:"js",typescript:"ts",ts:"ts",tsx:"tsx",jsx:"jsx",html:"html",css:"css",json:"json",python:"py",py:"py",sql:"sql",markdown:"md",md:"md",xml:"xml",svg:"svg",sh:"sh",bash:"sh" } as Record<string,string>)[lang] || "txt"; return { code: match[2], ext, lang }; }
 function chatTitle(text: string) {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > 42 ? clean.slice(0, 42).trimEnd() + "…" : clean || "New conversation";
@@ -208,7 +208,7 @@ export default function Home() {
       if (saveUserError) throw new Error("Unable to save your message: " + saveUserError.message);
       setMessages((current) => [...current, { role: "user", content: userText, attachments: uploaded }]);
       const previousHistory = messages.map(({ role, content }) => ({ role, content })).slice(-10);
-      if (isNew) await supabase.from("chats").update({ title: chatTitle(text || "Image conversation"), updated_at: new Date().toISOString() }).eq("id", chatId).eq("user_id", user.id);
+      await supabase.from("chats").update({ ...(isNew ? { title: chatTitle(text || "Image conversation") } : {}), updated_at: new Date().toISOString() }).eq("id", chatId).eq("user_id", user.id);
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: userText, images: imagePayload, history: previousHistory, enabledProviders: activeModels.map((model) => model.id) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to get a response. Please try again.");
@@ -224,7 +224,7 @@ export default function Home() {
 
   function addImages(files: FileList | File[]) {
     const list = Array.from(files);
-    const picked = list.filter((file) => file.type.startsWith("image/"));
+    const picked = list.filter((file) => file.type.startsWith("image/")).slice(0, 3);
     if (picked.length !== list.length) setError("Only image files can be attached in chat.");
     for (const file of picked) {
       if (file.size > 8 * 1024 * 1024) { setError(file.name + " is larger than the 8 MB chat-image limit."); continue; }
