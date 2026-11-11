@@ -33,7 +33,7 @@ async function askGroq(input: string, key: string, model: string, timeout = 2400
   }
 }
 
-async function askGemini(input: string, key: string, model: string, timeout = 24000): Promise<ChatResult> {
+async function askGemini(input: string, key: string, model: string, timeout = 42000): Promise<ChatResult> {
   try {
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
       method: "POST",
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       ].join("\n\n");
       const synthesis = providers.includes("groq")
         ? await askGroq(synthesisPrompt, groqKey!, process.env.GROQ_MODEL || "openai/gpt-oss-20b", 18000)
-        : await askGemini(synthesisPrompt, geminiKey!, process.env.GEMINI_MODEL || "gemini-3.8-flash", 18000);
+        : await askGemini(synthesisPrompt, geminiKey!, process.env.GEMINI_MODEL || "gemini-3.8-flash", 12000);
       if (synthesis.text) final = synthesis.text;
       else errors.push(`Synthesis: ${synthesis.error || "Could not combine drafts; showing the best available response."}`);
     }
