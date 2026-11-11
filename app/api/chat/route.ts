@@ -238,7 +238,7 @@ export async function POST(request: Request) {
                 (message as HistoryMessage).role === "assistant") &&
               typeof (message as HistoryMessage).content === "string",
           )
-          .map((message) => ({
+          .map((message: HistoryMessage) => ({
             role: message.role,
             content: message.content.slice(0, 12000),
           }))
