@@ -6,15 +6,18 @@ const rememberKey = "ai-duo-remember-session";
 
 const sessionStorageAdapter = {
   getItem(key: string) {
+    if (typeof window === "undefined") return null;
     const persistent = localStorage.getItem(rememberKey) !== "false";
     return (persistent ? localStorage : sessionStorage).getItem(key);
   },
   setItem(key: string, value: string) {
+    if (typeof window === "undefined") return;
     const persistent = localStorage.getItem(rememberKey) !== "false";
     (persistent ? localStorage : sessionStorage).setItem(key, value);
     (persistent ? sessionStorage : localStorage).removeItem(key);
   },
   removeItem(key: string) {
+    if (typeof window === "undefined") return;
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   },
