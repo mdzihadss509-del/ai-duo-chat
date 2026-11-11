@@ -17,6 +17,7 @@ type HistoryMessage = { role: "user" | "assistant"; content: string };
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
   { id: "groq", name: "Astra Core", model: process.env.GROQ_MODEL || "qwen/qwen3.8-27b", baseUrl: "https://api.groq.com/openai/v1/chat/completions", apiKeyEnv: "GROQ_API_KEY", accent: "blue" },
   { id: "openrouter", name: "Nova Reasoner", model: process.env.OPENROUTER_MODEL || "openrouter/free", baseUrl: "https://openrouter.ai/api/v1/chat/completions", apiKeyEnv: "OPENROUTER_API_KEY", accent: "purple" },
+  { id: "cloudflare", name: "Cloudflare Workers AI", model: process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct", baseUrl: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID || "missing"}/ai/v1/chat/completions`, apiKeyEnv: "CLOUDFLARE_API_TOKEN", accent: "blue" },
 ];
 
 const SYSTEM_PROMPT = [
@@ -101,6 +102,7 @@ async function askCloudflareFallback(
 }
 
 async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 20000): Promise<ChatResult> {
+  if (provider.id === "cloudflare" && !process.env.CLOUDFLARE_ACCOUNT_ID) return { error: "Missing server environment variable CLOUDFLARE_ACCOUNT_ID" };
   const key = process.env[provider.apiKeyEnv];
   if (!key) {
     const missingKeyError = "Missing server environment variable " + provider.apiKeyEnv;
@@ -158,12 +160,13 @@ function isRateLimited(request: Request) {
 
 export async function GET() {
   return NextResponse.json({
-    models: getProviders().map(({ id, name, model, accent }) => ({
+    models: getProviders().map(({ id, name, model, accent, apiKeyEnv }) => ({
       id,
       name,
       model: id === "groq" && process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN
         ? model + " · Cloudflare backup enabled"
         : model,
+      configured: Boolean(process.env[apiKeyEnv] && (id !== "cloudflare" || process.env.CLOUDFLARE_ACCOUNT_ID)),
       accent: accent || "blue",
     })),
   });
