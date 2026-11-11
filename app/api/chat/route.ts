@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Provider = "groq" | "openrouter" | "cloudflare" | "cohere";
+type Provider = "groq" | "openrouter" | "cloudflare";
 type ChatResult = { text?: string; error?: string };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -55,24 +55,6 @@ async function askCloudflare(input: string, accountId: string, token: string, mo
   }
 }
 
-async function askCohere(input: string, key: string, model: string, timeout = 24000): Promise<ChatResult> {
-  try {
-    const response = await fetch("https://api.cohere.com/v2/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages: chatMessages(input), temperature: 0.5 }),
-      signal: AbortSignal.timeout(timeout)
-    });
-    const data = await response.json();
-    if (!response.ok) return { error: data?.message || `Cohere returned HTTP ${response.status}` };
-    const text = Array.isArray(data?.message?.content)
-      ? data.message.content.filter((part: { type?: string; text?: string }) => part.type === "text" && typeof part.text === "string").map((part: { text?: string }) => part.text || "").join("\n").trim()
-      : "";
-    return text ? { text } : { error: "Cohere returned an empty response." };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Cohere request failed." };
-  }
-}
 
 function buildConversation(prompt: string, history: HistoryMessage[]) {
   const context = history.slice(-10).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
@@ -86,7 +68,7 @@ export async function POST(request: Request) {
     if (!prompt) return NextResponse.json({ error: "Please enter a message." }, { status: 400 });
     if (prompt.length > 12000) return NextResponse.json({ error: "Message is too long (12,000 character limit)." }, { status: 400 });
 
-    const validProviders: Provider[] = ["groq", "openrouter", "cloudflare", "cohere"];
+    const validProviders: Provider[] = ["groq", "openrouter", "cloudflare"];
     const requested: Provider[] = Array.isArray(body.enabledProviders)
       ? body.enabledProviders.filter((p: unknown): p is Provider => validProviders.includes(p as Provider))
       : ["groq"];
@@ -102,8 +84,7 @@ export async function POST(request: Request) {
     const config: Record<Provider, { ready: boolean; missing: string }> = {
       groq: { ready: Boolean(process.env.GROQ_API_KEY), missing: "GROQ_API_KEY" },
       openrouter: { ready: Boolean(process.env.OPENROUTER_API_KEY), missing: "OPENROUTER_API_KEY" },
-      cloudflare: { ready: Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN), missing: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN" },
-      cohere: { ready: Boolean(process.env.COHERE_API_KEY), missing: "COHERE_API_KEY" }
+      cloudflare: { ready: Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN), missing: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN" }
     };
     const missing = providers.filter((provider) => !config[provider].ready);
     if (missing.length === providers.length) {
@@ -114,13 +95,12 @@ export async function POST(request: Request) {
       if (!config[provider].ready) return [provider, { error: `Missing ${config[provider].missing}` }] as const;
       if (provider === "groq") return [provider, await askCompatible("groq", conversation, process.env.GROQ_API_KEY!, process.env.GROQ_MODEL || "openai/gpt-oss-20b")] as const;
       if (provider === "openrouter") return [provider, await askCompatible("openrouter", conversation, process.env.OPENROUTER_API_KEY!, process.env.OPENROUTER_MODEL || "openrouter/free")] as const;
-      if (provider === "cloudflare") return [provider, await askCloudflare(conversation, process.env.CLOUDFLARE_ACCOUNT_ID!, process.env.CLOUDFLARE_API_TOKEN!, process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct")] as const;
-      return [provider, await askCohere(conversation, process.env.COHERE_API_KEY!, process.env.COHERE_MODEL || "command-r7b-12-2024")] as const;
+      return [provider, await askCloudflare(conversation, process.env.CLOUDFLARE_ACCOUNT_ID!, process.env.CLOUDFLARE_API_TOKEN!, process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct")] as const;
     });
 
     const results = Object.fromEntries(await Promise.all(tasks)) as Partial<Record<Provider, ChatResult>>;
     const available = providers.map((provider) => results[provider]?.text).filter((value): value is string => Boolean(value));
-    const labels: Record<Provider, string> = { groq: "Groq", openrouter: "OpenRouter", cloudflare: "Cloudflare AI", cohere: "Cohere" };
+    const labels: Record<Provider, string> = { groq: "Astra Core", openrouter: "Nova Reasoner", cloudflare: "Llama Pulse" };
     const errors = providers.map((provider) => results[provider]?.error ? `${labels[provider]}: ${results[provider]?.error}` : "").filter(Boolean);
     if (available.length === 0) return NextResponse.json({ error: errors.join(" | ") || "The selected AIs couldn't respond." }, { status: 502 });
 
@@ -137,8 +117,7 @@ export async function POST(request: Request) {
       for (const provider of synthesizers) {
         if (provider === "groq") synthesis = await askCompatible("groq", synthesisPrompt, process.env.GROQ_API_KEY!, process.env.GROQ_MODEL || "openai/gpt-oss-20b", 14000);
         else if (provider === "openrouter") synthesis = await askCompatible("openrouter", synthesisPrompt, process.env.OPENROUTER_API_KEY!, process.env.OPENROUTER_MODEL || "openrouter/free", 14000);
-        else if (provider === "cloudflare") synthesis = await askCloudflare(synthesisPrompt, process.env.CLOUDFLARE_ACCOUNT_ID!, process.env.CLOUDFLARE_API_TOKEN!, process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct", 14000);
-        else synthesis = await askCohere(synthesisPrompt, process.env.COHERE_API_KEY!, process.env.COHERE_MODEL || "command-r7b-12-2024", 14000);
+        else synthesis = await askCloudflare(synthesisPrompt, process.env.CLOUDFLARE_ACCOUNT_ID!, process.env.CLOUDFLARE_API_TOKEN!, process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct", 14000);
         if (synthesis.text) break;
       }
       if (synthesis.text) final = synthesis.text;
