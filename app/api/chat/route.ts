@@ -139,7 +139,7 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
   } catch (error) {
     const providerError = error instanceof Error ? error.message : provider.name + " request failed.";
     if (provider.id === "groq") {
-      const fallback = await askCloudflareFallback(messages, providerError, timeout);
+      const fallback = await askCloudflareFallback(messages, providerError);
       if (fallback) return fallback;
     }
     return { error: providerError };
