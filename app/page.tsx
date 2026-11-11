@@ -312,7 +312,7 @@ export default function Home() {
       setRememberSession(rememberMe);
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: "https://ai-duo-chat-eight.vercel.app/auth/callback" },
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
       });
       if (error) setAuthMessage(error.message);
     } catch (err) {
