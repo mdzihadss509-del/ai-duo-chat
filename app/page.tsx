@@ -9,7 +9,6 @@ type ModelState = { id: Provider; name: string; model: string; enabled: boolean;
 const initialModels: ModelState[] = [
   { id: "groq", name: "Astra Core", model: "GPT-OSS 20B · Groq", enabled: true, color: "groq" },
   { id: "openrouter", name: "Nova Reasoner", model: "Free model routing · OpenRouter", enabled: true, color: "openrouter" },
-  { id: "cloudflare", name: "Llama Pulse", model: "Llama 3.1 8B · Cloudflare", enabled: true, color: "cloudflare" },
 ];
 
 export default function Home() {
@@ -95,7 +94,7 @@ export default function Home() {
           <div className="model-list">
             {models.map((model) => (
               <div className={`model-row ${model.enabled ? "model-enabled" : ""}`} key={model.id}>
-                <div className={`model-avatar ${model.color}`}>{model.id === "openrouter" ? "◎" : model.id === "cloudflare" ? "☁" : "◈"}</div>
+                <div className={`model-avatar ${model.color}`}>{model.id === "openrouter" ? "◎" : "◈"}</div>
                 <div className="model-meta"><strong>{model.name}</strong><small>{model.model}</small></div>
                 <button
                   className={`switch ${model.enabled ? "switch-on" : ""}`}
