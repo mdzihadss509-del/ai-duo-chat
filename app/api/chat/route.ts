@@ -15,7 +15,7 @@ type ChatResult = { text?: string; error?: string };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
-  { id: "groq", name: "Astra Core", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b", baseUrl: "https://api.groq.com/openai/v1/chat/completions", apiKeyEnv: "GROQ_API_KEY", accent: "blue" },
+  { id: "groq", name: "Astra Core", model: process.env.GROQ_MODEL || "qwen/qwen3.8-27b", baseUrl: "https://api.groq.com/openai/v1/chat/completions", apiKeyEnv: "GROQ_API_KEY", accent: "blue" },
   { id: "openrouter", name: "Nova Reasoner", model: process.env.OPENROUTER_MODEL || "openrouter/free", baseUrl: "https://openrouter.ai/api/v1/chat/completions", apiKeyEnv: "OPENROUTER_API_KEY", accent: "purple" },
 ];
 
@@ -41,15 +41,18 @@ function getProviders(): ProviderConfig[] {
   } catch { return DEFAULT_PROVIDERS; }
 }
 
-function conversationMessages(prompt: string, history: HistoryMessage[]) {
+function conversationMessages(prompt: string, history: HistoryMessage[], images: string[] = []) {
+  const userContent = images.length
+    ? [{ type: "text", text: prompt }, ...images.slice(0, 3).map((url) => ({ type: "image_url", image_url: { url } }))]
+    : prompt;
   return [
     { role: "system", content: SYSTEM_PROMPT },
     ...history.slice(-10).map((message) => ({ role: message.role, content: message.content.slice(0, 12000) })),
-    { role: "user", content: prompt },
+    { role: "user", content: userContent },
   ];
 }
 
-async function askProvider(provider: ProviderConfig, messages: { role: string; content: string }[], timeout = 20000): Promise<ChatResult> {
+async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 20000): Promise<ChatResult> {
   const key = process.env[provider.apiKeyEnv];
   if (!key) return { error: "Missing server environment variable " + provider.apiKeyEnv };
   try {
@@ -115,7 +118,9 @@ export async function POST(request: Request) {
         ).map((item: HistoryMessage) => ({ role: item.role, content: item.content.slice(0, 12000) }))
       : [];
 
-    const messages = conversationMessages(prompt, history);
+    const images: string[] = Array.isArray(body.images) ? body.images.filter((image: unknown): image is string => typeof image === "string" && /^data:image\\/(png|jpeg|jpg|webp|gif);base64,/.test(image)).slice(0, 3) : [];
+    if (images.some((image) => image.length > 12_000_000)) return NextResponse.json({ error: "Each image must be under 8 MB." }, { status: 400 });
+    const messages = conversationMessages(prompt, history, images);
     const results = await Promise.all(selected.map(async (provider) => ({
       provider,
       result: await askProvider(provider, messages),
