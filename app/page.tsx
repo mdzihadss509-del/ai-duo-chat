@@ -8,7 +8,7 @@ type Provider = { id: string; name: string; model: string; enabled: boolean; acc
 type Attachment = { name: string; path: string; type: string; url?: string };
 type Message = { id?: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; created_at?: string };
 type Chat = { id: string; title: string; created_at: string; updated_at: string };
-type StoredFile = { name: string; id: string; metadata?: { size?: number; mimetype?: string; lastModified?: string } | null; created_at?: string | null };
+type StoredFile = { name: string; id: string; path: string; metadata?: { size?: number; mimetype?: string; lastModified?: string } | null; created_at?: string | null };
 
 const initialModels: Provider[] = [
   { id: "groq", name: "Astra Core", model: "GPT-OSS 20B · Groq", enabled: true, accent: "blue" },
@@ -183,7 +183,10 @@ export default function Home() {
     if (!window.confirm('Delete "' + (target?.title || "this conversation") + '" and all its messages permanently?')) return;
     const { data: messageRows } = await supabase.from("chat_messages").select("attachments").eq("chat_id", chatId).eq("user_id", user.id);
     const attachmentPaths = (messageRows || []).flatMap((row: any) => Array.isArray(row.attachments) ? row.attachments.map((item: Attachment) => item.path).filter(Boolean) : []);
-    if (attachmentPaths.length) await supabase.storage.from("user-files").remove(attachmentPaths);
+    if (attachmentPaths.length) {
+      const { error: storageError } = await supabase.storage.from("user-files").remove(attachmentPaths);
+      if (storageError) { setError("Unable to remove chat attachments from Storage: " + storageError.message); return; }
+    }
     const { error } = await supabase.from("chats").delete().eq("id", chatId).eq("user_id", user.id);
     if (error) { setError("Unable to delete conversation: " + error.message); return; }
     const remaining = chats.filter((chat) => chat.id !== chatId);
@@ -192,6 +195,7 @@ export default function Home() {
       setSelectedChatId(remaining[0]?.id || null);
       setMessages([]);
     }
+    void loadFiles();
   }
 
   async function submit(e?: FormEvent) {
@@ -220,6 +224,7 @@ export default function Home() {
         const { data: signed } = await supabase.storage.from("user-files").createSignedUrl(path, 3600);
         uploaded.push({ name: item.file.name, path, type: item.file.type, url: signed?.signedUrl });
       }
+      if (uploaded.length) void loadFiles();
       const userText = text || "Please inspect the attached image(s).";
       const { error: saveUserError } = await supabase.from("chat_messages").insert({ chat_id: chatId, user_id: user.id, role: "user", content: userText, attachments: uploaded.map(({ name, path, type }) => ({ name, path, type })) });
       if (saveUserError) throw new Error("Unable to save your message: " + saveUserError.message);
@@ -335,10 +340,25 @@ export default function Home() {
   async function loadFiles() {
     if (!supabase || !user) return;
     setFilesLoading(true); setFileError("");
-    const { data, error } = await supabase.storage.from("user-files").list(user.id, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
-    if (error) setFileError(error.message);
-    else setFiles((data || []).filter((item) => item.id).map((item) => ({ ...item, id: item.id!, name: item.name })));
-    setFilesLoading(false);
+    const collected: StoredFile[] = [];
+    const walk = async (prefix: string): Promise<void> => {
+      const { data, error } = await supabase.storage.from("user-files").list(prefix, { limit: 1000, sortBy: { column: "created_at", order: "desc" } });
+      if (error) throw error;
+      for (const item of data || []) {
+        const path = prefix + "/" + item.name;
+        if (item.id) collected.push({ ...item, id: item.id, name: item.name, path });
+        else if (item.name && item.name !== "." && item.name !== "..") await walk(path);
+      }
+    };
+    try {
+      await walk(user.id);
+      collected.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+      setFiles(collected);
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : "Unable to load your files.");
+    } finally {
+      setFilesLoading(false);
+    }
   }
 
   async function uploadFiles(selected: FileList | File[]) {
@@ -359,27 +379,45 @@ export default function Home() {
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  async function deleteFile(name: string) {
-    if (!supabase || !user || !window.confirm("Delete this file permanently from Supabase Storage?")) return;
-    const { error } = await supabase.storage.from("user-files").remove([user.id + "/" + name]);
-    if (error) setFileError(error.message);
-    else setFiles((current) => current.filter((file) => file.name !== name));
+  async function deleteFile(path: string) {
+    if (!supabase || !user || !path.startsWith(user.id + "/") || !window.confirm("Delete this file permanently from Supabase Storage and remove its chat references?")) return;
+    const { error } = await supabase.storage.from("user-files").remove([path]);
+    if (error) { setFileError(error.message); return; }
+    const { data: rows, error: rowsError } = await supabase.from("chat_messages").select("id,attachments").eq("user_id", user.id);
+    if (!rowsError && rows) {
+      for (const row of rows as Array<{id:string;attachments:Attachment[] | null}>) {
+        const current = Array.isArray(row.attachments) ? row.attachments : [];
+        const next = current.filter((attachment) => attachment.path !== path);
+        if (next.length !== current.length) await supabase.from("chat_messages").update({ attachments: next }).eq("id", row.id).eq("user_id", user.id);
+      }
+    }
+    setFiles((current) => current.filter((file) => file.path !== path));
+    setMessages((current) => current.map((message) => ({ ...message, attachments: (message.attachments || []).filter((attachment) => attachment.path !== path) })));
   }
 
-  async function downloadFile(name: string) {
-    if (!supabase || !user) return;
-    const { data, error } = await supabase.storage.from("user-files").download(user.id + "/" + name);
+  async function downloadFile(path: string) {
+    if (!supabase || !user || !path.startsWith(user.id + "/")) return;
+    const { data, error } = await supabase.storage.from("user-files").download(path);
     if (error) { setFileError(error.message); return; }
     const url = URL.createObjectURL(data);
     const link = document.createElement("a"); link.href = url; link.download = name; link.click();
     URL.revokeObjectURL(url);
   }
 
-  async function previewFile(name: string) {
-    if (!supabase || !user) return;
-    const { data, error } = await supabase.storage.from("user-files").createSignedUrl(user.id + "/" + name, 60);
+  async function previewFile(path: string) {
+    if (!supabase || !user || !path.startsWith(user.id + "/")) return;
+    const { data, error } = await supabase.storage.from("user-files").createSignedUrl(path, 300);
     if (error) { setFileError(error.message); return; }
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function runUploadedHtml(path: string) {
+    if (!supabase || !user || !path.startsWith(user.id + "/") || !path.toLowerCase().endsWith(".html")) return;
+    const { data, error } = await supabase.storage.from("user-files").download(path);
+    if (error) { setFileError("Unable to open HTML file: " + error.message); return; }
+    const source = await data.text();
+    setPreviewHtml(source);
+    setPreviewOpen(true);
   }
 
   function onDrop(e: DragEvent<HTMLDivElement>) {
@@ -512,7 +550,7 @@ export default function Home() {
             {fileError && <div className="inline-error file-error">{fileError}</div>}
             <div className="files-list-header"><div><h2>Uploaded files</h2><span>{files.length} items · private to your account</span></div><button onClick={() => void loadFiles()}>↻ Refresh</button></div>
             <div className="file-list">{filesLoading ? <div className="file-empty">Loading files…</div> : files.length === 0 ? <div className="file-empty"><span>▧</span><b>No files yet</b><small>Files you upload will appear here.</small></div> : files.map((file) => (
-              <div className="file-row" key={file.id}><div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div><div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"}</small></div><div className="file-actions"><button onClick={() => void previewFile(file.name)} title="Preview">↗</button><button onClick={() => void downloadFile(file.name)} title="Download">↓</button><button className="delete-action" onClick={() => void deleteFile(file.name)} title="Delete">×</button></div></div>
+              <div className="file-row" key={file.path}><div className="file-type">{file.name.split(".").pop()?.slice(0,4).toUpperCase() || "FILE"}</div><div className="file-meta"><b>{file.name}</b><small>{formatBytes(file.metadata?.size)} · {file.created_at ? new Date(file.created_at).toLocaleDateString() : "Stored securely"} · {file.path.split("/").length > 2 ? "Chat attachment" : "My upload"}</small></div><div className="file-actions">{file.name.toLowerCase().endsWith(".html") && <button className="run-html" onClick={() => void runUploadedHtml(file.path)} title="Run HTML in sandbox">▶</button>}<button onClick={() => void previewFile(file.path)} title="Preview">↗</button><button onClick={() => void downloadFile(file.path)} title="Download">↓</button><button className="delete-action" onClick={() => void deleteFile(file.path)} title="Delete from Supabase">×</button></div></div>
             ))}</div>
           </div>
         )}
