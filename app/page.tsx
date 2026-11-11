@@ -212,7 +212,7 @@ export default function Home() {
           </button>
         </nav>
 
-        <div className="nav-label team-label">YOUR AI TEAM <span>{activeModels.length}/2 ON</span></div>
+        <div className="nav-label team-label">YOUR AI TEAM <span>{activeModels.length}/{models.length} ON</span></div>
         <div className="model-list">
           {models.map((model) => (
             <div className={`model-card ${model.enabled ? "model-on" : ""}`} key={model.id}>
