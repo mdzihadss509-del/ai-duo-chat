@@ -280,7 +280,7 @@ export default function Home() {
     setAuthBusy(false);
   }
 
-  async function signInWithProvider(provider: "google" | "github") {
+  async function signInWithProvider(provider: "google") {
     if (!supabase) return;
     setAuthBusy(true); setAuthMessage("");
     setRememberSession(rememberMe);
@@ -371,7 +371,6 @@ export default function Home() {
         <p>{authMode === "signin" ? "Sign in to continue to your private AI workspace." : "Create one account to save chats, files and settings securely."}</p>
         <div className="auth-socials">
           <button type="button" disabled={authBusy} onClick={() => void signInWithProvider("google")}><span className="google-mark">G</span> Continue with Google</button>
-          <button type="button" disabled={authBusy} onClick={() => void signInWithProvider("github")}><span>⌘</span> Continue with GitHub</button>
         </div>
         <div className="auth-divider"><span>OR CONTINUE WITH EMAIL</span></div>
         <form onSubmit={handleEmailAuth}>
