@@ -119,11 +119,23 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
       signal: AbortSignal.timeout(timeout),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok) {\n      const providerError = data?.error?.message || provider.name + " returned HTTP " + response.status;\n      if (provider.id === "groq") {\n        const fallback = await askCloudflareFallback(messages, providerError, timeout);\n        if (fallback) return fallback;\n      }\n      return { error: providerError };\n    }
+    if (!response.ok) {
+      const providerError = data?.error?.message || provider.name + " returned HTTP " + response.status;
+      if (provider.id === "groq") {
+        const fallback = await askCloudflareFallback(messages, providerError, timeout);
+        if (fallback) return fallback;
+      }
+      return { error: providerError };
+    }
     const answer = data?.choices?.[0]?.message?.content;
     return typeof answer === "string" && answer.trim() ? { text: answer.trim() } : { error: provider.name + " returned an empty response." };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : provider.name + " request failed." };
+    const providerError = error instanceof Error ? error.message : provider.name + " request failed.";
+    if (provider.id === "groq") {
+      const fallback = await askCloudflareFallback(messages, providerError, timeout);
+      if (fallback) return fallback;
+    }
+    return { error: providerError };
   }
 }
 
@@ -139,7 +151,14 @@ function isRateLimited(request: Request) {
 
 export async function GET() {
   return NextResponse.json({
-    models: getProviders().map(({ id, name, model, accent }) => ({\n      id, name,\n      model: id === "groq" && process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN\n        ? model + " · Cloudflare backup enabled"\n        : model,\n      accent: accent || "blue",\n    })),
+    models: getProviders().map(({ id, name, model, accent }) => ({
+      id,
+      name,
+      model: id === "groq" && process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN
+        ? model + " · Cloudflare backup enabled"
+        : model,
+      accent: accent || "blue",
+    })),
   });
 }
 
