@@ -85,7 +85,7 @@ export default function Home() {
     let cancelled = false;
     (async () => {
       setChatBusy(true);
-      const { data, error } = await supabase.from("chats").select("id,title,created_at,updated_at").order("updated_at", { ascending: false }).limit(100);
+      const { data, error } = await supabase.from("chats").select("id,title,created_at,updated_at").order("updated_at", { ascending: false }).limit(500);
       if (!cancelled) {
         if (error) setChatNotice("Couldn't load chat history: " + error.message);
         else {
@@ -167,8 +167,11 @@ export default function Home() {
     if (!supabase || !user) return;
     const target = chats.find((chat) => chat.id === chatId);
     if (!window.confirm('Delete "' + (target?.title || "this conversation") + '" and all its messages permanently?')) return;
+    const { data: messageRows } = await supabase.from("chat_messages").select("attachments").eq("chat_id", chatId).eq("user_id", user.id);
+    const attachmentPaths = (messageRows || []).flatMap((row: any) => Array.isArray(row.attachments) ? row.attachments.map((item: Attachment) => item.path).filter(Boolean) : []);
+    if (attachmentPaths.length) await supabase.storage.from("user-files").remove(attachmentPaths);
     const { error } = await supabase.from("chats").delete().eq("id", chatId).eq("user_id", user.id);
-    if (error) { setError("Couldn't delete conversation: " + error.message); return; }
+    if (error) { setError("Unable to delete conversation: " + error.message); return; }
     const remaining = chats.filter((chat) => chat.id !== chatId);
     setChats(remaining);
     if (selectedChatId === chatId) {
