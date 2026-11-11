@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Provider = "groq" | "openrouter" | "cloudflare";
+type Provider = "groq" | "openrouter";
 type ChatResult = { text?: string; error?: string };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -13,7 +13,6 @@ const SYSTEM_PROMPT =
 const PROVIDER_LABELS: Record<Provider, string> = {
   groq: "Astra Core",
   openrouter: "Nova Reasoner",
-  cloudflare: "Llama Pulse",
 };
 
 function chatMessages(input: string) {
@@ -75,52 +74,6 @@ async function askCompatible(
   }
 }
 
-async function askCloudflare(
-  input: string,
-  accountId: string,
-  token: string,
-  model: string,
-  timeout = 18000,
-): Promise<ChatResult> {
-  try {
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${model}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          messages: chatMessages(input),
-          max_tokens: 1200,
-        }),
-        signal: AbortSignal.timeout(timeout),
-      },
-    );
-    const data = await response.json().catch(() => null);
-    if (!response.ok || data?.success === false) {
-      const detail = data?.errors
-        ?.map((item: { message?: string }) => item.message)
-        .filter(Boolean)
-        .join("; ");
-      return {
-        error:
-          detail || `Cloudflare AI returned HTTP ${response.status}`,
-      };
-    }
-    const answer = data?.result?.response || data?.result?.output_text;
-    return typeof answer === "string" && answer.trim()
-      ? { text: answer.trim() }
-      : { error: "Cloudflare AI returned an empty response." };
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error ? error.message : "Cloudflare AI request failed.",
-    };
-  }
-}
-
 function buildConversation(prompt: string, history: HistoryMessage[]) {
   const context = history
     .slice(-10)
@@ -157,17 +110,7 @@ async function callProvider(
     );
   }
 
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  if (!accountId || !token) {
-    return { error: "Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN" };
-  }
-  return askCloudflare(
-    input,
-    accountId,
-    token,
-    process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct",
-  );
+  return { error: "Unknown AI provider." };
 }
 
 // Best-effort per-instance protection. For strict global limits, add a shared
@@ -211,7 +154,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const validProviders: Provider[] = ["groq", "openrouter", "cloudflare"];
+    const validProviders: Provider[] = ["groq", "openrouter"];
     const requested: Provider[] = Array.isArray(body.enabledProviders)
       ? body.enabledProviders.filter(
           (provider: unknown): provider is Provider =>
@@ -294,9 +237,6 @@ export async function POST(request: Request) {
         ...(providers.includes("openrouter") && results.openrouter?.text
           ? ["openrouter" as const]
           : []),
-        ...(providers.includes("cloudflare") && results.cloudflare?.text
-          ? ["cloudflare" as const]
-          : []),
       ];
       const firstSynthesizer = synthesisOrder[0];
       if (firstSynthesizer) {
@@ -346,15 +286,5 @@ async function callSynthesisProvider(
         )
       : { error: "Missing OPENROUTER_API_KEY" };
   }
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  return accountId && token
-    ? askCloudflare(
-        input,
-        accountId,
-        token,
-        process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct",
-        12000,
-      )
-    : { error: "Missing Cloudflare credentials" };
+  return { error: "Unknown synthesis provider." };
 }
