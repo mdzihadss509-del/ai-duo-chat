@@ -118,6 +118,17 @@ export default function Home() {
     if (activeTab === "files" && user) void loadFiles();
   }, [activeTab, user?.id]);
 
+  useEffect(() => {
+    function onShortcut(event: globalThis.KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (user && !chatBusy) void createChat();
+      }
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [user?.id, chatBusy]);
+
   function toggleModel(id: string) {
     setModels((current) => current.map((model) => model.id === id ? { ...model, enabled: !model.enabled } : model));
   }
@@ -138,6 +149,7 @@ export default function Home() {
 
   async function openChat(chatId: string) {
     if (chatId === selectedChatId) { setActiveTab("chat"); setMobileOpen(false); return; }
+    setMessages([]);
     setSelectedChatId(chatId);
     setActiveTab("chat");
     setError("");
