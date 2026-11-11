@@ -400,7 +400,7 @@ export default function Home() {
     const { data, error } = await supabase.storage.from("user-files").download(path);
     if (error) { setFileError(error.message); return; }
     const url = URL.createObjectURL(data);
-    const link = document.createElement("a"); link.href = url; link.download = name; link.click();
+    const link = document.createElement("a"); link.href = url; link.download = path.split("/").pop() || "download"; link.click();
     URL.revokeObjectURL(url);
   }
 
