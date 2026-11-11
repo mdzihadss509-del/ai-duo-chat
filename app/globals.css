@@ -219,3 +219,14 @@ body{background:#f6f8ff;color:#1f2b48}
 @keyframes confirm-rise{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:850px){.auth-layout{grid-template-columns:1fr;max-width:520px;min-height:0;padding:10px;gap:0}.auth-showcase{display:none}.auth-layout .auth-card-pro{padding:30px 22px}.auth-layout .auth-brand{display:flex}.auth-layout .auth-card-pro .auth-icon{margin-top:4px}}
 @media(max-width:500px){.auth-screen{padding:12px}.auth-layout{border-radius:21px}.confirm-modal{padding:22px}.confirm-actions button{flex:1;padding:0 9px}}
+
+
+/* Compact, aligned password visibility control */
+.auth-layout .password-field{position:relative;display:flex;align-items:center;width:100%;height:46px;overflow:hidden;border:1px solid #e2e8f4;border-radius:11px;background:#fff;transition:border-color .16s,box-shadow .16s}
+.auth-layout .password-field:focus-within{border-color:#86a8f3;box-shadow:0 0 0 3px #e8efff}
+.auth-layout .password-field input{flex:1;min-width:0;width:100%;height:44px;padding:0 48px 0 13px;border:0;border-radius:inherit;outline:0;background:transparent;box-shadow:none!important}
+.auth-layout .password-field .password-toggle{position:absolute;top:50%;right:7px;display:grid;place-items:center;width:34px;height:28px;padding:0;border:1px solid transparent;border-radius:7px;background:#f5f7fc;color:#73819e;font-size:9px;font-weight:750;line-height:1;cursor:pointer;transform:translateY(-50%);transition:background .15s,border-color .15s,color .15s}
+.auth-layout .password-field .password-toggle:hover{border-color:#dce5f8;background:#edf2ff;color:#526fca}
+.auth-layout .password-field .password-toggle:focus-visible{outline:2px solid #8ba8f2;outline-offset:2px}
+.model-card .switch:disabled{opacity:.35;cursor:not-allowed}
+.model-card .switch:disabled i{background:#fff}
