@@ -35,23 +35,26 @@ async function askGroq(input: string, key: string, model: string, timeout = 2400
 
 async function askGemini(input: string, key: string, model: string, timeout = 42000): Promise<ChatResult> {
   try {
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key, "Api-Revision": "2026-05-20" },
-      body: JSON.stringify({ model, input: `${SYSTEM_PROMPT}\n\n${input}` }),
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: input }] }],
+        generationConfig: { temperature: 0.5 }
+      }),
       signal: AbortSignal.timeout(timeout)
     });
     const data = await response.json();
     if (!response.ok) return { error: data?.error?.message || `Gemini returned HTTP ${response.status}` };
-    const outputText = typeof data?.output_text === "string" ? data.output_text : "";
-    const stepText = Array.isArray(data?.steps)
-      ? data.steps.filter((step: { type?: string }) => step.type === "model_output")
-          .flatMap((step: { content?: Array<{ type?: string; text?: string }> }) => step.content || [])
-          .filter((part: { type?: string }) => part.type === "text")
-          .map((part: { text?: string }) => part.text || "").join("")
+    const text = Array.isArray(data?.candidates?.[0]?.content?.parts)
+      ? data.candidates[0].content.parts
+          .filter((part: { text?: string }) => typeof part.text === "string")
+          .map((part: { text?: string }) => part.text || "")
+          .join("")
+          .trim()
       : "";
-    const text = (outputText || stepText).trim();
-    return text ? { text } : { error: "Gemini returned an empty response." };
+    return text ? { text } : { error: data?.promptFeedback?.blockReason || "Gemini returned an empty response." };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Gemini request failed." };
   }
