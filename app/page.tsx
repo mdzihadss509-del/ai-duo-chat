@@ -75,15 +75,23 @@ export default function Home() {
 
   useEffect(() => {
     if (!supabase) { setAuthReady(true); return; }
-    supabase.auth.getSession().then(({ data }) => {
+    let active = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) setAuthMessage("Session check failed: " + error.message);
       setUser(data.session?.user ?? null);
+      setAuthReady(true);
+    }).catch((err) => {
+      if (!active) return;
+      setAuthMessage(err instanceof Error ? err.message : "Unable to check your sign-in session. Please reload.");
       setAuthReady(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
-    return () => listener.subscription.unsubscribe();
+    return () => { active = false; listener.subscription.unsubscribe(); };
   }, [supabase]);
 
   useEffect(() => {
@@ -268,27 +276,46 @@ export default function Home() {
 
   async function handleEmailAuth(e: FormEvent) {
     e.preventDefault();
-    if (!supabase || !email.trim() || !password) return;
-    setAuthBusy(true); setAuthMessage("");
-    setRememberSession(rememberMe);
-    const result = authMode === "signup"
-      ? await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
-      : await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (result.error) setAuthMessage(result.error.message);
-    else if (authMode === "signup" && !result.data.session) setAuthMessage("Account created. Check your email to confirm your address, then sign in.");
-    else setAuthMessage(authMode === "signup" ? "Account created successfully." : "Signed in successfully.");
-    setAuthBusy(false);
+    if (!supabase || !email.trim() || !password || authBusy) return;
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      setRememberSession(rememberMe);
+      const result = authMode === "signup"
+        ? await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
+        : await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (result.error) {
+        setAuthMessage(result.error.message);
+      } else if (authMode === "signup" && !result.data.session) {
+        setAuthMessage("Account created. Check your email to confirm your address, then sign in.");
+      } else if (result.data.session) {
+        setUser(result.data.user);
+        setAuthMessage("Signed in successfully.");
+      } else {
+        setAuthMessage("Account request completed, but no active session was returned. Check your email for confirmation.");
+      }
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : "Sign-in failed due to a network error. Please try again.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   async function signInWithProvider(provider: "google") {
-    if (!supabase) return;
+    if (!supabase || authBusy) return;
     setAuthBusy(true); setAuthMessage("");
-    setRememberSession(rememberMe);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) { setAuthMessage(error.message); setAuthBusy(false); }
+    try {
+      setRememberSession(rememberMe);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) setAuthMessage(error.message);
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   async function resetPassword() {
@@ -377,7 +404,7 @@ export default function Home() {
           <label htmlFor="email">EMAIL ADDRESS</label>
           <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           <label htmlFor="password">PASSWORD</label>
-          <div className="password-field"><input id="password" type={showPassword ? "text" : "password"} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? "Hide" : "Show"}</button></div>
+          <div className="password-field"><input id="password" type={showPassword ? "text" : "password"} autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={authMode === "signup" ? 8 : undefined} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? "Hide" : "Show"}</button></div>
           <div className="auth-options">
             <label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> Remember me</label>
             {authMode === "signin" && <button type="button" className="text-action" onClick={() => void resetPassword()} disabled={authBusy}>Forgot password?</button>}
