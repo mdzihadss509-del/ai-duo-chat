@@ -52,6 +52,54 @@ function conversationMessages(prompt: string, history: HistoryMessage[], images:
   ];
 }
 
+async function askCloudflareFallback(
+  messages: { role: string; content: any }[],
+  originalError: string,
+  timeout = 20000,
+): Promise<ChatResult | null> {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !apiToken) return null;
+
+  // The configured fallback model is text-only; keep image prompts on the primary provider.
+  const containsImage = messages.some((message) =>
+    Array.isArray(message.content) && message.content.some((part: any) => part?.type === "image_url")
+  );
+  if (containsImage) return null;
+
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          model: process.env.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct",
+          messages,
+          temperature: 0.5,
+          max_tokens: 2048,
+        }),
+        signal: AbortSignal.timeout(timeout),
+      },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const fallbackError = data?.errors?.[0]?.message || data?.error?.message || "HTTP " + response.status;
+      return { error: originalError + " · Cloudflare backup: " + fallbackError };
+    }
+    const answer = data?.choices?.[0]?.message?.content;
+    return typeof answer === "string" && answer.trim()
+      ? { text: answer.trim() }
+      : { error: originalError + " · Cloudflare backup returned an empty response." };
+  } catch (error) {
+    const fallbackError = error instanceof Error ? error.message : "request failed";
+    return { error: originalError + " · Cloudflare backup: " + fallbackError };
+  }
+}
+
 async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 20000): Promise<ChatResult> {
   const key = process.env[provider.apiKeyEnv];
   if (!key) return { error: "Missing server environment variable " + provider.apiKeyEnv };
@@ -71,7 +119,7 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
       signal: AbortSignal.timeout(timeout),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok) return { error: data?.error?.message || provider.name + " returned HTTP " + response.status };
+    if (!response.ok) {\n      const providerError = data?.error?.message || provider.name + " returned HTTP " + response.status;\n      if (provider.id === "groq") {\n        const fallback = await askCloudflareFallback(messages, providerError, timeout);\n        if (fallback) return fallback;\n      }\n      return { error: providerError };\n    }
     const answer = data?.choices?.[0]?.message?.content;
     return typeof answer === "string" && answer.trim() ? { text: answer.trim() } : { error: provider.name + " returned an empty response." };
   } catch (error) {
@@ -91,7 +139,7 @@ function isRateLimited(request: Request) {
 
 export async function GET() {
   return NextResponse.json({
-    models: getProviders().map(({ id, name, model, accent }) => ({ id, name, model, accent: accent || "blue" })),
+    models: getProviders().map(({ id, name, model, accent }) => ({\n      id, name,\n      model: id === "groq" && process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN\n        ? model + " · Cloudflare backup enabled"\n        : model,\n      accent: accent || "blue",\n    })),
   });
 }
 
