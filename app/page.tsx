@@ -6,7 +6,7 @@ import { getSupabase } from "@/lib/supabase";
 
 type Provider = { id: string; name: string; model: string; enabled: boolean; accent: "blue" | "purple" };
 type Message = { role: "user" | "assistant"; content: string };
-type StoredFile = { name: string; id: string; metadata?: { size?: number; mimetype?: string; lastModified?: string }; created_at?: string };
+type StoredFile = { name: string; id: string; metadata?: { size?: number; mimetype?: string; lastModified?: string } | null; created_at?: string | null };
 
 const initialModels: Provider[] = [
   { id: "groq", name: "Astra Core", model: "GPT-OSS 20B · Groq", enabled: true, accent: "blue" },
