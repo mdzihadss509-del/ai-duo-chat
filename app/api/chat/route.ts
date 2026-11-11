@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
+
+// Keep provider requests alive for up to 4.5 minutes, leaving time for response processing.
 
 type ProviderConfig = {
   id: string;
@@ -101,7 +103,7 @@ async function askCloudflareFallback(
   }
 }
 
-async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 20000): Promise<ChatResult> {
+async function askProvider(provider: ProviderConfig, messages: { role: string; content: any }[], timeout = 270000): Promise<ChatResult> {
   if (provider.id === "cloudflare" && !process.env.CLOUDFLARE_ACCOUNT_ID) return { error: "Missing server environment variable CLOUDFLARE_ACCOUNT_ID" };
   const key = process.env[provider.apiKeyEnv];
   if (!key) {
@@ -216,7 +218,7 @@ export async function POST(request: Request) {
         { role: "system", content: SYSTEM_PROMPT + " You are also the answer composer. Compare independent drafts, keep accurate and useful points, remove repetition, resolve contradictions carefully, and produce one natural, complete answer. Do not mention models, providers, or that answers were combined." },
         { role: "user", content: "Original user message:\n" + prompt + "\n\n" + drafts },
       ];
-      const synthesis = await askProvider(available[0].provider, synthesisMessages, 12000);
+      const synthesis = await askProvider(available[0].provider, synthesisMessages, 25000);
       if (synthesis.text) final = synthesis.text;
       else errors.push("Synthesis unavailable; showing the best available response.");
     }
