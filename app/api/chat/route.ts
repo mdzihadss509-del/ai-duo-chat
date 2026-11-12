@@ -13,6 +13,23 @@ type ProviderConfig = {
   accent?: "blue" | "purple";
 };
 type ChatResult = { text?: string; error?: string };
+
+function extractAssistantText(data: any): string | null {
+  const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.output_text ?? data?.response;
+  if (typeof content === "string" && content.trim()) return content.trim();
+  if (Array.isArray(content)) {
+    const combined = content.map((part: any) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").join("").trim();
+    if (combined) return combined;
+  }
+  const blocks = data?.output?.flatMap((item: any) => item?.content || []) || [];
+  return blocks.map((part: any) => typeof part?.text === "string" ? part.text : "").join("").trim() || null;
+}
+
+function providerErrorMessage(data: any, fallback: string): string {
+  const error = data?.error;
+  if (typeof error === "string") return error;
+  return error?.message || data?.errors?.[0]?.message || data?.message || fallback;
+}
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
@@ -70,6 +87,7 @@ async function askCloudflareFallback(
   if (containsImage) return null;
 
   try {
+    const compactMessages = messages.length > 7 ? [messages[0], ...messages.slice(-6)] : messages;
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
       {
@@ -80,21 +98,22 @@ async function askCloudflareFallback(
         },
         body: JSON.stringify({
           model: process.env.CLOUDFLARE_MODEL || "@cf/qwen/qwen3.8-27b",
-          messages,
-          temperature: 0.5,
-          max_tokens: 2048,
+          messages: compactMessages,
+          temperature: 0.3,
+          max_tokens: 1024,
         }),
       },
     );
-    const data = await response.json().catch(() => null);
+    const raw = await response.text();
+    const data = raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
     if (!response.ok) {
-      const fallbackError = data?.errors?.[0]?.message || data?.error?.message || "HTTP " + response.status;
+      const fallbackError = providerErrorMessage(data, "HTTP " + response.status);
       return { error: originalError + " · Cloudflare backup: " + fallbackError };
     }
-    const answer = data?.choices?.[0]?.message?.content;
-    return typeof answer === "string" && answer.trim()
-      ? { text: answer.trim() }
-      : { error: originalError + " · Cloudflare backup returned an empty response." };
+    const answer = extractAssistantText(data);
+    return answer
+      ? { text: answer }
+      : { error: originalError + " · Cloudflare backup returned no assistant text (finish reason: " + (data?.choices?.[0]?.finish_reason || "unknown") + ")." };
   } catch (error) {
     const fallbackError = error instanceof Error ? error.message : "request failed";
     return { error: originalError + " · Cloudflare backup: " + fallbackError };
@@ -114,6 +133,12 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
   }
   try {
     const isOpenRouter = provider.baseUrl.includes("openrouter.ai");
+    const providerMessages = provider.id === "cloudflare" && messages.length > 7
+      ? [messages[0], ...messages.slice(-6)]
+      : messages;
+    const requestBody: Record<string, any> = { model: provider.model, messages: providerMessages, temperature: 0.3 };
+    if (provider.id === "cloudflare") requestBody.max_tokens = 1024;
+    if (provider.id === "claude") requestBody.max_tokens = 2048;
     const response = await fetch(provider.baseUrl, {
       method: "POST",
       headers: {
@@ -124,19 +149,22 @@ async function askProvider(provider: ProviderConfig, messages: { role: string; c
           "X-Title": "AI Duo Chat",
         } : {}),
       },
-      body: JSON.stringify({ model: provider.model, messages, temperature: 0.5 }),
+      body: JSON.stringify(requestBody),
     });
-    const data = await response.json().catch(() => null);
+    const raw = await response.text();
+    const data = raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
     if (!response.ok) {
-      const providerError = data?.error?.message || provider.name + " returned HTTP " + response.status;
+      const providerError = providerErrorMessage(data, provider.name + " returned HTTP " + response.status);
       if (provider.id === "groq") {
         const fallback = await askCloudflareFallback(messages, providerError);
         if (fallback) return fallback;
       }
       return { error: providerError };
     }
-    const answer = data?.choices?.[0]?.message?.content;
-    return typeof answer === "string" && answer.trim() ? { text: answer.trim() } : { error: provider.name + " returned an empty response." };
+    const answer = extractAssistantText(data);
+    return answer
+      ? { text: answer }
+      : { error: provider.name + " returned no assistant text (finish reason: " + (data?.choices?.[0]?.finish_reason || "unknown") + ")." };
   } catch (error) {
     const providerError = error instanceof Error ? error.message : provider.name + " request failed.";
     if (provider.id === "groq") {
